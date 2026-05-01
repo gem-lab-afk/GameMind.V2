@@ -3,7 +3,7 @@ import { Trash2, User, Bell, Shield, Check, Palette } from 'lucide-react';
 import { Profile, Session } from '../types';
 
 interface SettingsProps {
-  onClearData: () => void;
+  onClearData: () => Promise<void>;
   currentTheme: string;
   onThemeChange: (theme: string) => void;
   profile?: Profile | null;
@@ -15,6 +15,8 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [tempUsername, setTempUsername] = useState('');
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [hasCleared, setHasCleared] = useState(false);
 
   const [pushEnabled, setPushEnabled] = useState(() => localStorage.getItem('habit_tracker_push') === 'true');
   const [privacyEnabled, setPrivacyEnabled] = useState(() => localStorage.getItem('habit_tracker_privacy') === 'true');
@@ -230,22 +232,48 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
           
           {showWipeConfirm && (
             <div className="bg-rose-950/30 border border-rose-900/50 rounded-xl p-3 animate-in fade-in slide-in-from-top-2">
-              <p className="text-xs text-rose-200 mb-3 font-medium">Are you sure? This action cannot be undone.</p>
+              <p className="text-xs text-rose-200 mb-3 font-medium">
+                {hasCleared ? "Data successfully wiped." : "Are you sure? This action cannot be undone."}
+              </p>
               <div className="flex justify-end gap-2">
+                {!hasCleared && (
+                  <button 
+                    onClick={() => setShowWipeConfirm(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
                 <button 
-                  onClick={() => setShowWipeConfirm(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={() => {
-                    onClearData();
-                    setShowWipeConfirm(false);
+                  disabled={isClearing || hasCleared}
+                  onClick={async () => {
+                    if (hasCleared) {
+                      setShowWipeConfirm(false);
+                      setHasCleared(false);
+                      return;
+                    }
+                    setIsClearing(true);
+                    await onClearData();
+                    setIsClearing(false);
+                    setHasCleared(true);
+                    setTimeout(() => {
+                      setShowWipeConfirm(false);
+                      setHasCleared(false);
+                    }, 2000);
                   }}
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-medium transition-colors shadow-sm shadow-rose-900/20"
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm flex items-center justify-center min-w-[100px] ${
+                    hasCleared 
+                      ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' 
+                      : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/20'
+                  } ${isClearing ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
-                  Yes, wipe data
+                  {isClearing ? (
+                    <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></span>
+                  ) : hasCleared ? (
+                    <><Check size={14} className="mr-1" /> Wiped</>
+                  ) : (
+                    'Yes, wipe data'
+                  )}
                 </button>
               </div>
             </div>

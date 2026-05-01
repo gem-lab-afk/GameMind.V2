@@ -27,19 +27,23 @@ export default function App() {
   // Auth & Profile Initialization
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSessionUser(session?.user ?? null);
       if (session?.user) {
+        setIsInitializing(true);
+        setSessionUser(session.user);
         fetchProfile(session.user.id);
       } else {
+        setSessionUser(null);
         setIsInitializing(false);
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSessionUser(session?.user ?? null);
       if (session?.user) {
+        setIsInitializing(true);
+        setSessionUser(session.user);
         fetchProfile(session.user.id);
       } else {
+        setSessionUser(null);
         setProfile(null);
         setSessions([]);
         setIsInitializing(false);
