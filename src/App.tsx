@@ -17,16 +17,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'logs' | 'settings'>('dashboard');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isTracking, setIsTracking] = useState(() => localStorage.getItem('habit_tracker_is_tracking') === 'true');
+  const [isTracking, setIsTracking] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('habit_tracker_theme') || 'default');
 
   useEffect(() => {
     localStorage.setItem('habit_tracker_theme', theme);
   }, [theme]);
-
-  useEffect(() => {
-    localStorage.setItem('habit_tracker_is_tracking', isTracking.toString());
-  }, [isTracking]);
 
   // Auth & Profile Initialization
   useEffect(() => {
@@ -55,6 +51,7 @@ export default function App() {
 
   const fetchProfile = async (userId: string) => {
     try {
+      setIsInitializing(true);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -146,13 +143,22 @@ export default function App() {
   const handleClearData = async () => {
     if (!sessionUser) return;
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('sessions')
         .delete()
-        .eq('user_id', sessionUser.id);
+        .eq('user_id', sessionUser.id)
+        .select('*');
         
       if (error) {
         console.error('Error clearing cloud data:', error);
+        alert('Failed to clear cloud data.');
+      } else if (data && data.length === 0) {
+        // If data is empty but we expected to delete rows (and currently have data in state)
+        if (sessions.length > 0) {
+          alert('Could not delete data in the cloud. This is usually because your Supabase Row Level Security (RLS) policies are missing a "DELETE" rule for this table. Please check your Supabase dashboard.');
+        } else {
+          setSessions([]);
+        }
       } else {
         setSessions([]);
       }

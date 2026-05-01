@@ -21,7 +21,8 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
 
   const lastSession = sessions.length > 0 ? sessions[0] : null; // Assuming sorted descending in App
   
-  const isTrackingActive = localStorage.getItem('habit_tracker_is_tracking') === 'true';
+  const activeStepStr = localStorage.getItem('ht_step');
+  const isTrackingActive = activeStepStr === '2' || activeStepStr === '3';
 
   return (
     <div className="p-6 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
