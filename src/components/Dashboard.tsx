@@ -111,8 +111,8 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
                 <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorMood" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="var(--color-primary-500)" stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor="var(--color-primary-500)" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff1a" vertical={false} />
@@ -127,11 +127,11 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
                   <Area 
                     type="monotone" 
                     dataKey="endMood" 
-                    stroke="#3b82f6" 
+                    stroke="var(--color-primary-500)" 
                     strokeWidth={3}
                     fillOpacity={1} 
                     fill="url(#colorMood)"
-                    activeDot={{ r: 6, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }}
+                    activeDot={{ r: 6, fill: 'var(--color-primary-500)', stroke: '#fff', strokeWidth: 2 }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
