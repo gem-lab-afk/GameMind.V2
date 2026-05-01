@@ -34,10 +34,42 @@ export default function App() {
       setIsInitializing(false);
     }, 5000);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setSessionUser(session.user);
         fetchProfile(session.user.id, initTimeout);
+      } else {
+        if (localStorage.getItem('ht_is_guest') !== 'true') {
+          setSessionUser(null);
+          setProfile(null);
+          setSessions([]);
+        } else {
+          setSessionUser({
+            id: 'guest_user_12345',
+            email: 'guest@gamemind.app',
+          } as any);
+          setProfile({
+            id: 'guest_user_12345',
+            username: 'Guest Player',
+            platforms: ['PC'],
+            genres: ['RPG'],
+            app_goal: 'Testing GameMind out',
+            created_at: new Date().toISOString()
+          } as any);
+        }
+        setIsInitializing(false);
+        clearTimeout(initTimeout);
+      }
+    }).catch(err => {
+      console.error('Session error:', err);
+      setIsInitializing(false);
+      clearTimeout(initTimeout);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setSessionUser(session.user);
+        fetchProfile(session.user.id);
         
         // Edge Function Logic Framework: Track Last Login
         try {
@@ -63,7 +95,6 @@ export default function App() {
           } as any);
         }
         setIsInitializing(false);
-        clearTimeout(initTimeout);
       }
     });
 
@@ -82,6 +113,8 @@ export default function App() {
         .single();
       
       if (!error && data) {
+        if (!data.platforms && data.platform) data.platforms = data.platform.split(', ');
+        if (!data.genres && data.primary_genre) data.genres = data.primary_genre.split(', ');
         setProfile(data);
         
         // Verify What's New

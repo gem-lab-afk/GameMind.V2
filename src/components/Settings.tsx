@@ -82,7 +82,11 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
   const handleProfileDetailsSave = async () => {
     if (isEditingProfileDetails) {
       if (profile && profile.id !== 'guest_user_12345') {
-        await supabase.from('profiles').update({ platforms: tempPlatforms, genres: tempGenres }).eq('id', profile.id);
+        // Save using legacy column names, but keep UI using arrays
+        await supabase.from('profiles').update({ 
+          platform: tempPlatforms.join(', '), 
+          primary_genre: tempGenres.join(', ') 
+        }).eq('id', profile.id);
         profile.platforms = tempPlatforms;
         profile.genres = tempGenres;
       } else if (profile && profile.id === 'guest_user_12345') {

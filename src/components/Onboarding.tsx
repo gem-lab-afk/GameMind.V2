@@ -34,8 +34,8 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
         {
           id: sessionData.session.user.id,
           username,
-          platforms: platforms,
-          genres: genres,
+          platform: platforms.join(', '),
+          primary_genre: genres.join(', '),
           app_goal: goal
         }
       ], { onConflict: 'id' });
