@@ -3,7 +3,6 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { Play, Gamepad2, TrendingUp, Clock, Target } from 'lucide-react';
 import { Session } from '../types';
 import { formatTime } from '../utils';
-import { motion } from 'framer-motion';
 
 interface DashboardProps {
   sessions: Session[];
@@ -54,11 +53,9 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
       </header>
 
       {/* Hero Section */}
-      <motion.button 
+      <button 
         onClick={onStartSession} 
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        className="w-full relative group cursor-pointer text-left focus:outline-none rounded-3xl shadow-[0_0_15px_rgba(59,130,246,0.5)] border border-white/20 overflow-hidden"
+        className="w-full relative group cursor-pointer text-left focus:outline-none rounded-3xl shadow-[0_0_15px_rgba(59,130,246,0.5)] border border-white/20 overflow-hidden hover:scale-[1.02] active:scale-95 transition-transform duration-300"
       >
         <div className="absolute inset-0 bg-gradient-to-r from-primary-600/40 to-primary-400/40 rounded-3xl blur-md opacity-60 group-hover:opacity-100 transition-opacity duration-300"></div>
         <div className="relative bg-white/10 backdrop-blur-md rounded-3xl p-8 flex flex-col items-center justify-center text-center overflow-hidden">
@@ -68,20 +65,18 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
           <h2 className="text-xl font-bold text-white mb-2 tracking-wide">{isTrackingActive ? 'RESUME SESSION' : 'START SESSION'}</h2>
           <p className="text-slate-200 text-sm">{isTrackingActive ? 'You have a session in progress.' : 'Track your playtime and feelings.'}</p>
         </div>
-      </motion.button>
+      </button>
 
       {sessions.length === 0 ? (
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col items-center justify-center py-12 text-center"
+        <div 
+          className="flex flex-col items-center justify-center py-12 text-center animate-in fade-in slide-in-from-bottom-5 duration-700"
         >
           <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4">
             <Gamepad2 size={40} className="text-slate-400" />
           </div>
           <h2 className="text-xl font-semibold text-slate-200 mb-2">Ready for your first session?</h2>
           <p className="text-slate-400 max-w-xs mx-auto">Tap the button above when you start playing a game to begin tracking your mood.</p>
-        </motion.div>
+        </div>
       ) : (
         <>
           {/* Quick Stats Section */}

@@ -9,7 +9,7 @@ import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
 import WhatsNewModal from './components/WhatsNewModal';
 import { supabase } from './lib/supabase';
-import { motion, AnimatePresence } from 'framer-motion';
+
 
 export default function App() {
   const [sessionUser, setSessionUser] = useState<any>(null);
@@ -34,50 +34,15 @@ export default function App() {
       setIsInitializing(false);
     }, 5000);
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setIsInitializing(true);
-        setSessionUser(session.user);
-        fetchProfile(session.user.id);
-      } else {
-        if (localStorage.getItem('ht_is_guest') !== 'true') {
-          setSessionUser(null);
-        } else {
-          setSessionUser({
-            id: 'guest_user_12345',
-            email: 'guest@gamemind.app',
-          } as any);
-          setProfile({
-            id: 'guest_user_12345',
-            username: 'Guest Player',
-            platforms: ['PC'],
-            genres: ['RPG'],
-            app_goal: 'Testing GameMind out',
-            created_at: new Date().toISOString()
-          } as any);
-        }
-        setIsInitializing(false);
-        clearTimeout(initTimeout);
-      }
-    }).catch(err => {
-      console.error('Session error:', err);
-      setIsInitializing(false);
-      clearTimeout(initTimeout);
-    });
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        setIsInitializing(true);
         setSessionUser(session.user);
-        fetchProfile(session.user.id);
+        fetchProfile(session.user.id, initTimeout);
         
         // Edge Function Logic Framework: Track Last Login
-        // We'll prepare a backend trigger to check if users haven't logged in for 7 days
-        // Here we just update a local timestamp so it could be synced if the user wants.
         try {
-          await supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', session.user.id);
-        } catch (e) {} // ignore if column doesn't exist yet
-        
+          await supabase.from('profiles').update({ last_login: new Date().toISOString() as any }).eq('id', session.user.id);
+        } catch (e) {}
       } else {
         if (localStorage.getItem('ht_is_guest') !== 'true') {
           setSessionUser(null);
@@ -98,6 +63,7 @@ export default function App() {
           } as any);
         }
         setIsInitializing(false);
+        clearTimeout(initTimeout);
       }
     });
 
@@ -107,9 +73,8 @@ export default function App() {
     };
   }, []);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, timeoutId?: NodeJS.Timeout) => {
     try {
-      setIsInitializing(true);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -130,6 +95,7 @@ export default function App() {
       console.error(err);
     } finally {
       setIsInitializing(false);
+      if (timeoutId) clearTimeout(timeoutId);
     }
   };
 
@@ -325,19 +291,16 @@ export default function App() {
             </button>
           </div>
           
-          <AnimatePresence>
+          <div className="relative">
             {toastMsg && (
-              <motion.div 
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/50 backdrop-blur-md px-4 py-2 rounded-full shadow-lg shadow-emerald-500/10 text-emerald-100 font-medium whitespace-nowrap text-sm"
+              <div 
+                className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/50 backdrop-blur-md px-4 py-2 rounded-full shadow-lg shadow-emerald-500/10 text-emerald-100 font-medium whitespace-nowrap text-sm animate-in fade-in slide-in-from-top-4 duration-300"
               >
                 <CheckCircle2 size={16} className="text-emerald-400" />
                 {toastMsg}
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>
+          </div>
 
           {activeTab === 'dashboard' && <Dashboard sessions={sessions} onStartSession={() => setIsTracking(true)} />}
            {activeTab === 'logs' && <Logs sessions={sessions} />}

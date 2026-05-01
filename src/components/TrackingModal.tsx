@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { X, Play, Square, Check, ChevronDown, Loader2 } from 'lucide-react';
 import { Session } from '../types';
 import { formatTime } from '../utils';
-import { motion, AnimatePresence } from 'framer-motion';
 
 interface TrackingModalProps {
   onClose: () => void;

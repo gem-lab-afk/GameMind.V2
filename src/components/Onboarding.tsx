@@ -23,16 +23,14 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
 
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       
-      if (sessionError || !sessionData.session) {
+      if (sessionError || !sessionData.session || !sessionData.session.user.id) {
         console.error("Session missing or invalid:", sessionError);
         setErrorMsg("Session expired or invalid. Please sign in again.");
-        setTimeout(() => onComplete(), 2000); // Wait a bit then let app redirect
+        setTimeout(() => onComplete(), 2000);
         return;
       }
 
-      console.log("Saving profile for user:", sessionData.session.user.id);
-
-      const { data, error, status } = await supabase.from('profiles').upsert([
+      const { error } = await supabase.from('profiles').upsert([
         {
           id: sessionData.session.user.id,
           username,
@@ -43,17 +41,13 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       ], { onConflict: 'id' });
       
       if (error) {
-        console.error("Full Supabase Error Object:", JSON.stringify(error, null, 2));
-        setErrorMsg("Oops, let's try that again. Something went wrong.");
-      } else if (status === 201 || status === 204) {
-        onComplete();
-      } else {
-         console.log("Unexpected status:", status);
-         onComplete();
+        throw error;
       }
-    } catch (err: any) {
-      console.error("Unexpected error in handleSave:", err);
-      setErrorMsg("Oops, let's try that again. Something went wrong.");
+      
+      onComplete();
+    } catch (error: any) {
+      console.error("Supabase Insert Error:", error);
+      setErrorMsg("Oops! Couldn't save profile. Try again.");
     } finally {
       setLoading(false);
     }
