@@ -30,6 +30,10 @@ export default function App() {
 
   // Auth & Profile Initialization
   useEffect(() => {
+    let initTimeout = setTimeout(() => {
+      setIsInitializing(false);
+    }, 5000);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setIsInitializing(true);
@@ -53,7 +57,12 @@ export default function App() {
           } as any);
         }
         setIsInitializing(false);
+        clearTimeout(initTimeout);
       }
+    }).catch(err => {
+      console.error('Session error:', err);
+      setIsInitializing(false);
+      clearTimeout(initTimeout);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -92,7 +101,10 @@ export default function App() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(initTimeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const fetchProfile = async (userId: string) => {
