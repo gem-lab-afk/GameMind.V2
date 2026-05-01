@@ -17,12 +17,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'logs' | 'settings'>('dashboard');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isTracking, setIsTracking] = useState(false);
+  const [isTracking, setIsTracking] = useState(() => localStorage.getItem('habit_tracker_is_tracking') === 'true');
   const [theme, setTheme] = useState(() => localStorage.getItem('habit_tracker_theme') || 'default');
 
   useEffect(() => {
     localStorage.setItem('habit_tracker_theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('habit_tracker_is_tracking', isTracking.toString());
+  }, [isTracking]);
 
   // Auth & Profile Initialization
   useEffect(() => {

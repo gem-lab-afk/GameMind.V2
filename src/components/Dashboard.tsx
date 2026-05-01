@@ -20,6 +20,8 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
   }, [sessions]);
 
   const lastSession = sessions.length > 0 ? sessions[0] : null; // Assuming sorted descending in App
+  
+  const isTrackingActive = localStorage.getItem('habit_tracker_is_tracking') === 'true';
 
   return (
     <div className="p-6 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -40,8 +42,8 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
           <div className="bg-primary-500/20 p-4 rounded-full mb-4">
             <Play className="text-primary-400 ml-1" size={32} />
           </div>
-          <h2 className="text-xl font-bold text-white mb-2">Start New Session</h2>
-          <p className="text-slate-400 text-sm">Track your playtime and feelings.</p>
+          <h2 className="text-xl font-bold text-white mb-2">{isTrackingActive ? 'Resume Session' : 'Start New Session'}</h2>
+          <p className="text-slate-400 text-sm">{isTrackingActive ? 'You have a session in progress.' : 'Track your playtime and feelings.'}</p>
         </div>
       </button>
 

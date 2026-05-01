@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Play, Square, Check } from 'lucide-react';
+import { X, Play, Square, Check, ChevronDown } from 'lucide-react';
 import { Session } from '../types';
 import { formatTime } from '../utils';
 
@@ -9,28 +9,58 @@ interface TrackingModalProps {
 }
 
 export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(() => Number(localStorage.getItem('ht_step')) as any || 1);
   
   // Step 1 State
-  const [gameName, setGameName] = useState(() => localStorage.getItem('habit_tracker_default_game') || '');
+  const [gameName, setGameName] = useState(() => localStorage.getItem('ht_game_name') || localStorage.getItem('habit_tracker_default_game') || '');
   const [plannedTime, setPlannedTime] = useState<number | ''>(() => {
+    const saved = localStorage.getItem('ht_planned_time');
+    if (saved) return Number(saved);
     const defTime = localStorage.getItem('habit_tracker_default_time');
     return defTime ? Number(defTime) : '';
   });
-  const [baselineMood, setBaselineMood] = useState<number>(3);
+  const [baselineMood, setBaselineMood] = useState<number>(() => Number(localStorage.getItem('ht_baseline_mood')) || 3);
   
   // Step 2 State
-  const [actualTime, setActualTime] = useState(0); // in seconds
+  const [actualTime, setActualTime] = useState(() => Number(localStorage.getItem('ht_actual_time')) || 0); // in seconds
+  const [isPaused, setIsPaused] = useState(() => localStorage.getItem('ht_is_paused') === 'true');
+  const [lastTick, setLastTick] = useState<number>(() => Number(localStorage.getItem('ht_last_tick')) || Date.now());
   
   // Step 3 State
-  const [satisfaction, setSatisfaction] = useState(3);
-  const [durationPerception, setDurationPerception] = useState(3);
-  const [endMood, setEndMood] = useState(3);
-  const [control, setControl] = useState(3);
-  const [diary, setDiary] = useState('');
+  const [satisfaction, setSatisfaction] = useState(() => Number(localStorage.getItem('ht_satisfaction')) || 3);
+  const [durationPerception, setDurationPerception] = useState(() => Number(localStorage.getItem('ht_durationPerception')) || 3);
+  const [endMood, setEndMood] = useState(() => Number(localStorage.getItem('ht_endMood')) || 3);
+  const [control, setControl] = useState(() => Number(localStorage.getItem('ht_control')) || 3);
+  const [diary, setDiary] = useState(() => localStorage.getItem('ht_diary') || '');
 
   const [errorMsg, setErrorMsg] = useState('');
-  const [isPaused, setIsPaused] = useState(false);
+
+  // Persist state to localstorage
+  useEffect(() => {
+    localStorage.setItem('ht_step', step.toString());
+    localStorage.setItem('ht_game_name', gameName);
+    localStorage.setItem('ht_planned_time', plannedTime.toString());
+    localStorage.setItem('ht_baseline_mood', baselineMood.toString());
+    localStorage.setItem('ht_satisfaction', satisfaction.toString());
+    localStorage.setItem('ht_durationPerception', durationPerception.toString());
+    localStorage.setItem('ht_endMood', endMood.toString());
+    localStorage.setItem('ht_control', control.toString());
+    localStorage.setItem('ht_diary', diary);
+    localStorage.setItem('ht_is_paused', isPaused.toString());
+    localStorage.setItem('ht_actual_time', actualTime.toString());
+  }, [step, gameName, plannedTime, baselineMood, satisfaction, durationPerception, endMood, control, diary, isPaused, actualTime]);
+
+  // Catch up unmounted time
+  useEffect(() => {
+    if (step === 2 && !isPaused) {
+      const now = Date.now();
+      const savedLastTick = Number(localStorage.getItem('ht_last_tick')) || now;
+      const missedSeconds = Math.floor((now - savedLastTick) / 1000);
+      if (missedSeconds > 0) {
+        setActualTime(prev => prev + missedSeconds);
+      }
+    }
+  }, []);
 
   // Timer Effect
   useEffect(() => {
@@ -38,7 +68,13 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
     if (step === 2 && !isPaused) {
       interval = setInterval(() => {
         setActualTime(prev => prev + 1);
+        const now = Date.now();
+        setLastTick(now);
+        localStorage.setItem('ht_last_tick', now.toString());
       }, 1000);
+    } else if (isPaused) {
+      // make sure lastTick is updated if paused so we don't catch up wrongly when unpaused
+      localStorage.setItem('ht_last_tick', Date.now().toString());
     }
     return () => clearInterval(interval);
   }, [step, isPaused]);
@@ -50,6 +86,8 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
     }
     setErrorMsg('');
     setStep(2);
+    setLastTick(Date.now());
+    localStorage.setItem('ht_last_tick', Date.now().toString());
   };
 
   const handleEndSession = () => {
@@ -94,6 +132,29 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
     return "Session Logged: Solid play. Keep tracking to help GameMind uncover your personal gaming trends.";
   };
 
+  const clearSessionStorage = () => {
+    localStorage.removeItem('ht_step');
+    localStorage.removeItem('ht_game_name');
+    localStorage.removeItem('ht_planned_time');
+    localStorage.removeItem('ht_baseline_mood');
+    localStorage.removeItem('ht_actual_time');
+    localStorage.removeItem('ht_is_paused');
+    localStorage.removeItem('ht_last_tick');
+    localStorage.removeItem('ht_satisfaction');
+    localStorage.removeItem('ht_durationPerception');
+    localStorage.removeItem('ht_endMood');
+    localStorage.removeItem('ht_control');
+    localStorage.removeItem('ht_diary');
+  };
+
+  const handleCloseOrMinimize = () => {
+    // If canceled in step 1, clear it so next time it's clean.
+    if (step === 1) {
+      clearSessionStorage();
+    }
+    onClose();
+  };
+
   const handleSave = () => {
     const generateUUID = () => {
       if (crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -118,6 +179,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
       analyzer_tip: generateAnalyzerTip(),
       created_at: new Date().toISOString()
     } as Session;
+    clearSessionStorage();
     onSave(newSession);
   };
 
@@ -127,11 +189,17 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
         <h2 className="text-xl font-bold bg-gradient-to-r from-primary-300 to-primary-400 bg-clip-text text-transparent">
           {step === 1 ? 'New Session' : step === 2 ? 'Active Session' : 'Reflection'}
         </h2>
-        {step !== 2 && (
-          <button onClick={onClose} className="p-2 bg-slate-900 rounded-full text-slate-400 hover:text-white transition-colors">
-            <X size={20} />
-          </button>
-        )}
+        
+        <button onClick={handleCloseOrMinimize} className="p-2 bg-slate-900 rounded-full text-slate-400 hover:text-white transition-colors flex items-center gap-2">
+          {step === 2 || step === 3 ? (
+             <>
+               <span className="text-xs font-semibold pr-1">Minimize</span>
+               <ChevronDown size={20} />
+             </>
+          ) : (
+             <X size={20} />
+          )}
+        </button>
       </header>
 
       <div className={`flex-1 flex flex-col ${step === 3 ? 'justify-start mt-2' : 'justify-center'} max-w-sm w-full mx-auto pb-32`}>
