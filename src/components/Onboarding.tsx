@@ -10,11 +10,12 @@ interface OnboardingProps {
 export default function Onboarding({ userId, onComplete }: OnboardingProps) {
   const [step, setStep] = useState(1);
   const [username, setUsername] = useState('');
-  const [platform, setPlatform] = useState('');
-  const [genre, setGenre] = useState('');
+  const [platforms, setPlatforms] = useState<string[]>([]);
+  const [genres, setGenres] = useState<string[]>([]);
   const [goal, setGoal] = useState('');
   
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const handleSave = async () => {
     try {
@@ -24,8 +25,8 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       
       if (sessionError || !sessionData.session) {
         console.error("Session missing or invalid:", sessionError);
-        alert("Session expired or invalid. Please sign in again.");
-        onComplete(); // App Component will handle redirection since sessionUser will be null
+        setErrorMsg("Session expired or invalid. Please sign in again.");
+        setTimeout(() => onComplete(), 2000); // Wait a bit then let app redirect
         return;
       }
 
@@ -35,15 +36,15 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
         {
           id: sessionData.session.user.id,
           username,
-          platform,
-          primary_genre: genre,
+          platforms: platforms,
+          genres: genres,
           app_goal: goal
         }
       ], { onConflict: 'id' });
       
       if (error) {
         console.error("Full Supabase Error Object:", JSON.stringify(error, null, 2));
-        alert(`Could not save profile. Error: ${error.message}\nDetails: ${error.details || 'N/A'}\nHint: ${error.hint || 'N/A'}\nCode: ${error.code}`);
+        setErrorMsg("Oops, let's try that again. Something went wrong.");
       } else if (status === 201 || status === 204) {
         onComplete();
       } else {
@@ -52,7 +53,7 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       }
     } catch (err: any) {
       console.error("Unexpected error in handleSave:", err);
-      alert(`Unexpected error: ${err.message || String(err)}`);
+      setErrorMsg("Oops, let's try that again. Something went wrong.");
     } finally {
       setLoading(false);
     }
@@ -64,6 +65,12 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       
       <div className="w-full max-w-md bg-slate-900/80 border border-slate-700/50 p-8 rounded-3xl shadow-2xl relative z-10 animate-in fade-in slide-in-from-bottom-8 duration-500">
         
+        {errorMsg && (
+          <div className="mb-4 bg-rose-500/10 border border-rose-500/50 text-rose-400 p-3 rounded-xl text-sm font-medium text-center">
+            {errorMsg}
+          </div>
+        )}
+
         {step === 1 && (
           <div className="space-y-6">
             <div className="text-center">
@@ -90,40 +97,80 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
         {step === 2 && (
           <div className="space-y-6">
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-2">Primary Platform</h2>
-              <p className="text-slate-400 text-sm">Where do you play mostly?</p>
+              <h2 className="text-2xl font-bold text-white mb-2">Primary Platforms</h2>
+              <p className="text-slate-400 text-sm">Where do you play mostly? (Select all that apply)</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              {['PC', 'PlayStation', 'Xbox', 'Nintendo Switch', 'Mobile', 'VR'].map(p => (
-                <button
-                  key={p}
-                  onClick={() => { setPlatform(p); setStep(3); }}
-                  className="bg-slate-950 border border-slate-800 hover:border-primary-500 text-slate-300 font-medium py-3 rounded-xl transition-all"
-                >
-                  {p}
-                </button>
-              ))}
+              {['PC', 'PlayStation', 'Xbox', 'Nintendo Switch', 'Mobile', 'VR'].map(p => {
+                const isSelected = platforms.includes(p);
+                return (
+                  <button
+                    key={p}
+                    onClick={() => {
+                      if (isSelected) {
+                        setPlatforms(platforms.filter(plat => plat !== p));
+                      } else {
+                        setPlatforms([...platforms, p]);
+                      }
+                    }}
+                    className={`border font-medium py-3 rounded-xl transition-all ${
+                      isSelected 
+                        ? 'bg-primary-900/40 border-primary-500 text-primary-400' 
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-600 text-slate-300'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
             </div>
+            <button 
+              disabled={platforms.length === 0}
+              onClick={() => setStep(3)}
+              className="w-full mt-4 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white font-bold py-4 rounded-xl shadow-lg transition-all"
+            >
+              Next Step
+            </button>
           </div>
         )}
 
         {step === 3 && (
           <div className="space-y-6">
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-2">Primary Genre</h2>
-              <p className="text-slate-400 text-sm">What do you enjoy playing?</p>
+              <h2 className="text-2xl font-bold text-white mb-2">Primary Genres</h2>
+              <p className="text-slate-400 text-sm">What do you enjoy playing? (Select all that apply)</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              {['FPS/Shooter', 'RPG', 'MOBA', 'Strategy', 'Sports/Racing', 'Cozy/Casual'].map(g => (
-                <button
-                  key={g}
-                  onClick={() => { setGenre(g); setStep(4); }}
-                  className="bg-slate-950 border border-slate-800 hover:border-primary-500 text-slate-300 font-medium py-3 rounded-xl transition-all"
-                >
-                  {g}
-                </button>
-              ))}
+              {['FPS/Shooter', 'RPG', 'MOBA', 'Strategy', 'Sports/Racing', 'Cozy/Casual'].map(g => {
+                const isSelected = genres.includes(g);
+                return (
+                  <button
+                    key={g}
+                    onClick={() => {
+                      if (isSelected) {
+                        setGenres(genres.filter(genre => genre !== g));
+                      } else {
+                        setGenres([...genres, g]);
+                      }
+                    }}
+                    className={`border font-medium py-3 rounded-xl transition-all ${
+                      isSelected 
+                        ? 'bg-primary-900/40 border-primary-500 text-primary-400' 
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-600 text-slate-300'
+                    }`}
+                  >
+                    {g}
+                  </button>
+                );
+              })}
             </div>
+            <button 
+              disabled={genres.length === 0}
+              onClick={() => setStep(4)}
+              className="w-full mt-4 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white font-bold py-4 rounded-xl shadow-lg transition-all"
+            >
+              Next Step
+            </button>
           </div>
         )}
 

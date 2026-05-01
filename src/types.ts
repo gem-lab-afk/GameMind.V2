@@ -1,6 +1,10 @@
 export interface Profile {
   id: string;
   username: string;
+  avatar_url?: string;
+  platforms?: string[];
+  genres?: string[];
+  app_goal?: string;
   created_at: string;
 }
 

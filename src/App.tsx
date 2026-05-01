@@ -7,6 +7,7 @@ import Settings from './components/Settings';
 import TrackingModal from './components/TrackingModal';
 import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
+import WhatsNewModal from './components/WhatsNewModal';
 import { supabase } from './lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -21,6 +22,7 @@ export default function App() {
   const [isTracking, setIsTracking] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('habit_tracker_theme') || 'default');
   const [toastMsg, setToastMsg] = useState('');
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('habit_tracker_theme', theme);
@@ -34,20 +36,58 @@ export default function App() {
         setSessionUser(session.user);
         fetchProfile(session.user.id);
       } else {
-        setSessionUser(null);
+        if (localStorage.getItem('ht_is_guest') !== 'true') {
+          setSessionUser(null);
+        } else {
+          setSessionUser({
+            id: 'guest_user_12345',
+            email: 'guest@gamemind.app',
+          } as any);
+          setProfile({
+            id: 'guest_user_12345',
+            username: 'Guest Player',
+            platforms: ['PC'],
+            genres: ['RPG'],
+            app_goal: 'Testing GameMind out',
+            created_at: new Date().toISOString()
+          } as any);
+        }
         setIsInitializing(false);
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setIsInitializing(true);
         setSessionUser(session.user);
         fetchProfile(session.user.id);
+        
+        // Edge Function Logic Framework: Track Last Login
+        // We'll prepare a backend trigger to check if users haven't logged in for 7 days
+        // Here we just update a local timestamp so it could be synced if the user wants.
+        try {
+          await supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', session.user.id);
+        } catch (e) {} // ignore if column doesn't exist yet
+        
       } else {
-        setSessionUser(null);
-        setProfile(null);
-        setSessions([]);
+        if (localStorage.getItem('ht_is_guest') !== 'true') {
+          setSessionUser(null);
+          setProfile(null);
+          setSessions([]);
+        } else {
+          setSessionUser({
+            id: 'guest_user_12345',
+            email: 'guest@gamemind.app',
+          } as any);
+          setProfile({
+            id: 'guest_user_12345',
+            username: 'Guest Player',
+            platforms: ['PC'],
+            genres: ['RPG'],
+            app_goal: 'Testing GameMind out',
+            created_at: new Date().toISOString()
+          } as any);
+        }
         setIsInitializing(false);
       }
     });
@@ -66,6 +106,11 @@ export default function App() {
       
       if (!error && data) {
         setProfile(data);
+        
+        // Verify What's New
+        if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
+          setTimeout(() => setShowWhatsNew(true), 1500);
+        }
       } else {
         setProfile(null);
       }
@@ -101,6 +146,12 @@ export default function App() {
   const fetchSessions = async (userId: string) => {
     try {
       setIsLoading(true);
+      // Skip fetching if this is a local mock guest user
+      if (userId === 'guest_user_12345') {
+        setSessions([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('sessions')
         .select('*')
@@ -133,6 +184,9 @@ export default function App() {
     setToastMsg('Session Tracking Saved!');
     setTimeout(() => setToastMsg(''), 3000);
 
+    // Don't save to DB for guest user
+    if (sessionUser.id === 'guest_user_12345') return;
+
     try {
       const { error } = await supabase
         .from('sessions')
@@ -140,7 +194,7 @@ export default function App() {
 
       if (error) {
         console.error('Error saving session to Supabase:', error);
-        alert('Cloud sync failed.');
+        setToastMsg('Cloud sync failed.');
       } else {
         console.log('Session successfully saved to Supabase');
       }
@@ -152,6 +206,11 @@ export default function App() {
   const handleClearData = async () => {
     if (!sessionUser) return;
     try {
+      if (sessionUser.id === 'guest_user_12345') {
+        setSessions([]);
+        return;
+      }
+      
       const { data, error } = await supabase
         .from('sessions')
         .delete()
@@ -162,7 +221,6 @@ export default function App() {
         console.error('Error clearing cloud data:', error);
         alert('Failed to clear cloud data.');
       } else if (data && data.length === 0) {
-        // If data is empty but we expected to delete rows (and currently have data in state)
         if (sessions.length > 0) {
           alert('Could not delete data in the cloud. This is usually because your Supabase Row Level Security (RLS) policies are missing a "DELETE" rule for this table. Please check your Supabase dashboard.');
         } else {
@@ -176,8 +234,52 @@ export default function App() {
     }
   };
 
+  const clearLocalAuthAndTracking = () => {
+    // Clear tracking session and defaults
+    const keysToRemove = [
+      'ht_step', 'ht_game_name', 'ht_planned_time', 'ht_baseline_mood',
+      'ht_actual_time', 'ht_is_paused', 'ht_last_tick', 'ht_satisfaction',
+      'ht_durationPerception', 'ht_endMood', 'ht_control', 'ht_diary',
+      'habit_tracker_default_game', 'habit_tracker_default_time',
+      'habit_tracker_username', 'ht_is_guest'
+    ];
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  };
+
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    clearLocalAuthAndTracking();
+    if (sessionUser?.id === 'guest_user_12345') {
+      setSessionUser(null);
+      setProfile(null);
+      setSessions([]);
+    } else {
+      await supabase.auth.signOut();
+    }
+  };
+
+  const handleGuestLogin = async () => {
+    clearLocalAuthAndTracking();
+    localStorage.setItem('ht_is_guest', 'true');
+    console.log('Using local guest mode');
+    const mockGuestUser = {
+      id: 'guest_user_12345',
+      email: 'guest@gamemind.app',
+    };
+    setSessionUser(mockGuestUser);
+    
+    const mockProfile = {
+      id: 'guest_user_12345',
+      username: 'Guest Player',
+      platforms: ['PC'],
+      genres: ['RPG'],
+      app_goal: 'Testing GameMind out',
+      created_at: new Date().toISOString()
+    };
+    setProfile(mockProfile);
+    
+    if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
+      setTimeout(() => setShowWhatsNew(true), 1500);
+    }
   };
 
   if (isInitializing) {
@@ -192,7 +294,7 @@ export default function App() {
   }
 
   if (!sessionUser) {
-    return <AuthScreen />;
+    return <AuthScreen onGuestLogin={handleGuestLogin} />;
   }
 
   if (!profile) {
@@ -271,6 +373,13 @@ export default function App() {
               onSave={handleSaveSession}
             />
           </div>
+        )}
+
+        {showWhatsNew && (
+          <WhatsNewModal onClose={() => {
+            setShowWhatsNew(false);
+            localStorage.setItem('ht_whats_new_v2', 'seen');
+          }} />
         )}
       </div>
     </div>

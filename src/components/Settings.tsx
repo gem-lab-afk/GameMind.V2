@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Trash2, User, Bell, Shield, Check, Palette } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Trash2, User, Bell, Shield, Check, Palette, Upload, Gamepad2, Layers } from 'lucide-react';
 import { Profile, Session } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface SettingsProps {
   onClearData: () => Promise<void>;
@@ -12,17 +13,36 @@ interface SettingsProps {
 
 export default function Settings({ onClearData, currentTheme, onThemeChange, profile, sessions }: SettingsProps) {
   const [username, setUsername] = useState(() => profile?.username || localStorage.getItem('habit_tracker_username') || 'GamerTag_01');
+  const [avatarUrl, setAvatarUrl] = useState(() => profile?.avatar_url || null);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [tempUsername, setTempUsername] = useState('');
+  
+  const AVAILABLE_PLATFORMS = ['PC', 'PlayStation', 'Xbox', 'Switch', 'Mobile', 'VR'];
+  const AVAILABLE_GENRES = ['FPS', 'RPG', 'MMO', 'Strategy', 'Action', 'Adventure', 'Sports', 'Racing', 'Simulation', 'Puzzle'];
+  
+  const [isEditingProfileDetails, setIsEditingProfileDetails] = useState(false);
+  const [tempPlatforms, setTempPlatforms] = useState<string[]>([]);
+  const [tempGenres, setTempGenres] = useState<string[]>([]);
+  
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [hasCleared, setHasCleared] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [pushEnabled, setPushEnabled] = useState(() => localStorage.getItem('habit_tracker_push') === 'true');
   const [privacyEnabled, setPrivacyEnabled] = useState(() => localStorage.getItem('habit_tracker_privacy') === 'true');
   
   const [defaultGame, setDefaultGame] = useState(() => localStorage.getItem('habit_tracker_default_game') || '');
   const [defaultTime, setDefaultTime] = useState(() => localStorage.getItem('habit_tracker_default_time') || '60');
+
+  useEffect(() => {
+    if (profile) {
+      setUsername(profile.username);
+      if (profile.avatar_url) setAvatarUrl(profile.avatar_url);
+    }
+  }, [profile]);
 
   useEffect(() => {
     localStorage.setItem('habit_tracker_username', username);
@@ -44,15 +64,70 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
     localStorage.setItem('habit_tracker_default_time', defaultTime);
   }, [defaultTime]);
 
-  const handleEditSave = () => {
+  const handleEditSave = async () => {
     if (isEditingUsername) {
-      if (tempUsername.trim()) {
+      if (tempUsername.trim() && profile && profile.id !== 'guest_user_12345') {
+        setUsername(tempUsername.trim());
+        await supabase.from('profiles').update({ username: tempUsername.trim() }).eq('id', profile.id);
+      } else if (profile?.id === 'guest_user_12345' && tempUsername.trim()) {
         setUsername(tempUsername.trim());
       }
       setIsEditingUsername(false);
     } else {
       setTempUsername(username);
       setIsEditingUsername(true);
+    }
+  };
+
+  const handleProfileDetailsSave = async () => {
+    if (isEditingProfileDetails) {
+      if (profile && profile.id !== 'guest_user_12345') {
+        await supabase.from('profiles').update({ platforms: tempPlatforms, genres: tempGenres }).eq('id', profile.id);
+        profile.platforms = tempPlatforms;
+        profile.genres = tempGenres;
+      } else if (profile && profile.id === 'guest_user_12345') {
+        profile.platforms = tempPlatforms;
+        profile.genres = tempGenres;
+      }
+      setIsEditingProfileDetails(false);
+    } else {
+      setTempPlatforms(profile?.platforms || []);
+      setTempGenres(profile?.genres || []);
+      setIsEditingProfileDetails(true);
+    }
+  };
+
+  const togglePlatform = (p: string) => setTempPlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
+  const toggleGenre = (g: string) => setTempGenres(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]);
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      setUploadingAvatar(true);
+      if (!e.target.files || e.target.files.length === 0 || !profile) {
+        return;
+      }
+      const file = e.target.files[0];
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${profile.id}-${Math.random()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      
+      if (data) {
+        const url = data.publicUrl;
+        setAvatarUrl(url);
+        await supabase.from('profiles').update({ avatar_url: url }).eq('id', profile.id);
+      }
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      alert('Error uploading avatar.');
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
@@ -73,39 +148,104 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
       {/* Profile section */}
       <section>
         <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">Account</h2>
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-primary-600/20 rounded-full flex items-center justify-center border border-primary-500/30">
-              <User className="text-primary-400" size={24} />
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+              <div className="w-16 h-16 bg-primary-600/20 rounded-full flex items-center justify-center border border-primary-500/30 overflow-hidden relative group">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <User className="text-primary-400" size={32} />
+                )}
+                <div className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center">
+                  {uploadingAvatar ? <span className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></span> : <Upload className="text-white" size={20} />}
+                </div>
+                <input type="file" hidden accept="image/*" ref={fileInputRef} onChange={handleAvatarUpload} />
+              </div>
+              <div>
+                {isEditingUsername ? (
+                  <input 
+                    type="text" 
+                    value={tempUsername}
+                    onChange={(e) => setTempUsername(e.target.value)}
+                    className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm text-slate-200 outline-none focus:border-primary-500 w-32"
+                    autoFocus
+                    onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
+                  />
+                ) : (
+                  <p className="font-medium text-slate-200 text-lg">{username}</p>
+                )}
+                <p className="text-xs text-slate-400 mt-0.5">{profile?.app_goal || 'Free Tier'}</p>
+              </div>
             </div>
-            <div>
-              {isEditingUsername ? (
-                <input 
-                  type="text" 
-                  value={tempUsername}
-                  onChange={(e) => setTempUsername(e.target.value)}
-                  className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm text-slate-200 outline-none focus:border-primary-500 w-32"
-                  autoFocus
-                  onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
-                />
-              ) : (
-                <p className="font-medium text-slate-200">{username}</p>
-              )}
-              <p className="text-xs text-slate-500 mt-0.5">Free Tier</p>
-            </div>
+            <button 
+              onClick={handleEditSave}
+              className={`text-xs font-medium flex items-center gap-1 transition-colors ${isEditingUsername ? 'text-primary-400 hover:text-primary-300' : 'text-primary-400 hover:text-primary-300'}`}
+            >
+              {isEditingUsername ? <><Check size={14} /> Save</> : 'Edit Name'}
+            </button>
           </div>
-          <button 
-            onClick={handleEditSave}
-            className={`text-xs font-medium flex items-center gap-1 transition-colors ${isEditingUsername ? 'text-teal-400 hover:text-teal-300' : 'text-primary-400 hover:text-primary-300'}`}
-          >
-            {isEditingUsername ? (
-              <>
-                <Check size={14} /> Save
-              </>
-            ) : (
-              'Edit'
-            )}
-          </button>
+          
+          {profile && (
+            <div className="pt-4 border-t border-slate-800 flex flex-col gap-4 relative">
+               <div className="absolute right-0 top-4">
+                 <button 
+                   onClick={handleProfileDetailsSave}
+                   className={`text-xs font-medium flex items-center gap-1 transition-colors ${isEditingProfileDetails ? 'text-primary-400 hover:text-primary-300' : 'text-slate-500 hover:text-slate-300'}`}
+                 >
+                   {isEditingProfileDetails ? <><Check size={14} /> Save</> : 'Edit Details'}
+                 </button>
+               </div>
+               
+               <div className="flex-1 w-full mt-2">
+                 <div className="flex items-center gap-2 mb-2">
+                    <Gamepad2 size={14} className="text-slate-500" />
+                    <span className="text-xs text-slate-400 uppercase tracking-widest">Platforms</span>
+                 </div>
+                 <div className="flex flex-wrap gap-1.5">
+                   {isEditingProfileDetails ? (
+                     AVAILABLE_PLATFORMS.map(p => (
+                       <button
+                         key={p}
+                         onClick={() => togglePlatform(p)}
+                         className={`px-2 py-1 rounded-md text-xs uppercase font-bold transition-colors ${tempPlatforms.includes(p) ? 'bg-primary-500/20 text-primary-300 border border-primary-500/50' : 'bg-slate-800 text-slate-500 border border-slate-700 hover:bg-slate-700'}`}
+                       >
+                         {p}
+                       </button>
+                     ))
+                   ) : (
+                     profile.platforms && profile.platforms.length > 0 ? profile.platforms.map(p => (
+                       <span key={p} className="px-2 py-0.5 bg-primary-900/30 text-primary-400 border border-primary-500/20 rounded-md text-[10px] uppercase font-bold">{p}</span>
+                     )) : <span className="text-xs text-slate-600">None selected</span>
+                   )}
+                 </div>
+               </div>
+               
+               <div className="flex-1 w-full">
+                 <div className="flex items-center gap-2 mb-2">
+                    <Layers size={14} className="text-slate-500" />
+                    <span className="text-xs text-slate-400 uppercase tracking-widest">Genres</span>
+                 </div>
+                 <div className="flex flex-wrap gap-1.5">
+                   {isEditingProfileDetails ? (
+                     AVAILABLE_GENRES.map(g => (
+                       <button
+                         key={g}
+                         onClick={() => toggleGenre(g)}
+                         className={`px-2 py-1 rounded-md text-xs uppercase font-bold transition-colors ${tempGenres.includes(g) ? 'bg-primary-500/20 text-primary-300 border border-primary-500/50' : 'bg-slate-800 text-slate-500 border border-slate-700 hover:bg-slate-700'}`}
+                       >
+                         {g}
+                       </button>
+                     ))
+                   ) : (
+                     profile.genres && profile.genres.length > 0 ? profile.genres.map(g => (
+                       <span key={g} className="px-2 py-0.5 bg-primary-900/30 text-primary-400 border border-primary-500/20 rounded-md text-[10px] uppercase font-bold">{g}</span>
+                     )) : <span className="text-xs text-slate-600">None selected</span>
+                   )}
+                 </div>
+               </div>
+            </div>
+          )}
         </div>
       </section>
 

@@ -26,7 +26,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   const [actualTime, setActualTime] = useState(() => Number(localStorage.getItem('ht_actual_time')) || 0); // in seconds
   const [isPaused, setIsPaused] = useState(() => localStorage.getItem('ht_is_paused') === 'true');
   const [lastTick, setLastTick] = useState<number>(() => Number(localStorage.getItem('ht_last_tick')) || Date.now());
-  
+
   // Step 3 State
   const [satisfaction, setSatisfaction] = useState(() => Number(localStorage.getItem('ht_satisfaction')) || 3);
   const [durationPerception, setDurationPerception] = useState(() => Number(localStorage.getItem('ht_durationPerception')) || 3);
@@ -69,17 +69,55 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
     let interval: NodeJS.Timeout;
     if (step === 2 && !isPaused) {
       interval = setInterval(() => {
-        setActualTime(prev => prev + 1);
+        setActualTime(prev => {
+          const next = prev + 1;
+          document.title = `${formatTime(next)} - Active Session`;
+          
+          // 4. Browser Notifications at 90-minute mark
+          if (next === 5400 && Notification.permission === 'granted' && document.visibilityState === 'hidden') {
+            new Notification("Time for a break?", {
+              body: "You've been playing for 90 minutes. Stretch your legs!",
+              icon: "/favicon.ico"
+            });
+          }
+          
+          // Persistent Timer Notification (System clock)
+          // Showing a notification that replaces itself periodically if tab is hidden
+          if (next % 600 === 0 && Notification.permission === 'granted' && document.visibilityState === 'hidden') {
+             // Optional: a gentle reminder every 10 mins when hidden
+             try {
+                new Notification("GameMind Active", {
+                   body: `Session running: ${formatTime(next)}`,
+                   tag: 'gamemind-timer',
+                   silent: true
+                });
+             } catch(e) {}
+          }
+
+          return next;
+        });
         const now = Date.now();
         setLastTick(now);
         localStorage.setItem('ht_last_tick', now.toString());
       }, 1000);
     } else if (isPaused) {
-      // make sure lastTick is updated if paused so we don't catch up wrongly when unpaused
       localStorage.setItem('ht_last_tick', Date.now().toString());
+      document.title = 'GameMind';
     }
     return () => clearInterval(interval);
   }, [step, isPaused]);
+
+  useEffect(() => {
+    if (step !== 2) {
+      document.title = 'GameMind';
+    } else {
+      // Ask for permission on the first session
+      if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        Notification.requestPermission();
+      }
+    }
+    return () => { document.title = 'GameMind'; };
+  }, [step]);
 
   const handleStart = () => {
     if (!gameName.trim() || !plannedTime) {
@@ -102,36 +140,37 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   };
 
   const generateAnalyzerTip = (): string => {
-    const ptMins = Number(plannedTime) || 0;
-    const plannedSeconds = ptMins * 60;
+    let score = 0;
     
-    // 1. Compulsive Logic: Compare actual_seconds vs planned_mins. 
-    // If time exceeds 150% and control_score < 3, trigger the "Compulsive Pattern" warning.
-    if (plannedSeconds > 0 && actualTime > plannedSeconds * 1.5 && control < 3) {
-      return "Compulsive Pattern: You played 50% longer than planned with low control. Consider a hard external alarm next time.";
-    }
-
-    // 2. Sentiment Logic: Scan the diary_entry for stress-related keywords 
-    // ("burnout", "frustrated", "toxic") and trigger the "Emotional Trigger" warning.
-    const stressWords = ['burnout', 'frustrated', 'toxic', 'stress', 'angry', 'mad', 'tilt', 'exhausted', 'hate'];
-    const lowerDiary = diary.toLowerCase();
+    // Evaluate quantitative scale questions out of 5 to determine a session score
+    const moodDelta = endMood - baselineMood;
+    score += moodDelta * 2; // -8 to +8 (If mood improved greatly, add points)
     
-    if (diary.trim().length > 0 && stressWords.some(w => lowerDiary.includes(w))) {
-      return "Emotional Trigger: Stressful patterns detected in your notes. We highly recommend a 15-minute cool-down break.";
+    // Satisfaction (1-5) -> 4 or 5 is +2, 1 or 2 is -2
+    if (satisfaction >= 4) score += 2;
+    if (satisfaction <= 2) score -= 2;
+
+    // Control (1-5)
+    if (control >= 4) score += 2;
+    if (control <= 2) score -= 3; // Loss of control is penalized more
+
+    // Duration Perception (1-5, 3 is ideal)
+    if (durationPerception === 3) score += 1;
+    if (durationPerception === 1 || durationPerception === 5) score -= 1;
+
+    // Based on the final calculated score, provide a heavily weighted quantitative analysis
+    if (score >= 4) {
+      return "Peak Performance: Your mood improved, and you maintained high control and satisfaction. Keep replicating this environment!";
+    } else if (score <= -2) {
+      return "Mental Drain Detected: This session caused a drop in mood and a loss of control. Consider stepping away for 30 minutes to reset.";
+    } else if (satisfaction < 3 && control >= 4) {
+      return "Grind Session: You stayed in control but didn't enjoy it much. Try switching genres if you are feeling bored or frustrated.";
+    } else if (control < 3) {
+      return "Compulsive Warning: You felt a loss of track/control during this session. Next time, try setting a strict external alarm.";
     }
 
-    // 3. Sweet Spot Logic: High satisfaction + High control + On-time session = "Sweet Spot" reinforcement.
-    const isOnTime = Math.abs(actualTime - plannedSeconds) <= 1800; // Within 30 minutes
-    if (satisfaction >= 4 && control >= 4 && isOnTime) {
-      return "Sweet Spot: High satisfaction, high control, and strictly on time. Perfect habit execution!";
-    }
-
-    // 4. Default fallbacks
-    if (diary.trim().length === 0) {
-      return "Session Logged: Try adding a short diary entry next time to receive better emotional insights!";
-    }
-
-    return "Session Logged: Solid play. Keep tracking to help GameMind uncover your personal gaming trends.";
+    // Default fallback
+    return "Balanced Session: A neutral play session. Keep tracking to help GameMind uncover more specific trends.";
   };
 
   const clearSessionStorage = () => {
@@ -280,29 +319,29 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
 
         {/* STEP 2: ACTIVE GAME */}
         {step === 2 && (
-          <div className="flex flex-col items-center justify-center space-y-12 h-full text-center py-10">
+          <div className="flex flex-col items-center justify-center space-y-12 h-full text-center py-10 relative">
             <div className="space-y-4 w-full">
-              <div className="inline-block px-4 py-1.5 rounded-full border border-primary-500/30 bg-primary-500/10 text-primary-300 font-medium tracking-wide text-sm">
-                Playing {gameName}
-              </div>
-              <div 
-                className="text-6xl font-mono font-bold tracking-tighter text-white"
-                style={{ filter: `drop-shadow(0 0 15px var(--color-primary-500))` }}
-              >
-                {formatTime(actualTime)}
-              </div>
-              <div className="text-slate-400 font-medium">
-                Goal: <span className="text-slate-200">{plannedTime} min</span>
-              </div>
-              {actualTime / 60 > (plannedTime as number) && (
-                <div className="text-rose-400 font-medium animate-pulse text-sm">
-                  Overtime!
-                </div>
-              )}
+               <div className="inline-block px-4 py-1.5 rounded-full border border-primary-500/30 bg-primary-500/10 text-primary-300 font-medium tracking-wide text-sm">
+                 Playing {gameName}
+               </div>
+               <div 
+                 className="text-6xl font-mono font-bold tracking-tighter text-white"
+                 style={{ filter: `drop-shadow(0 0 15px var(--color-primary-500))` }}
+               >
+                 {formatTime(actualTime)}
+               </div>
+               <div className="text-slate-400 font-medium">
+                 Goal: <span className="text-slate-200">{plannedTime} min</span>
+               </div>
+               {actualTime / 60 > (plannedTime as number) && (
+                 <div className="text-rose-400 font-medium animate-pulse text-sm">
+                   Overtime!
+                 </div>
+               )}
             </div>
 
             {/* Interactive massive interaction area (tap to pause/resume) */}
-            <div className="flex-1 w-full flex items-center justify-center">
+            <div className="flex-1 w-full flex flex-col items-center justify-center">
                <button 
                  onClick={() => setIsPaused(!isPaused)}
                  className="w-48 h-48 rounded-full border border-slate-800 flex items-center justify-center relative cursor-pointer hover:border-primary-500/50 transition-colors group"
