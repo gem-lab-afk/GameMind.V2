@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Play, Square, Check, ChevronDown } from 'lucide-react';
+import { X, Play, Square, Check, ChevronDown, Loader2 } from 'lucide-react';
 import { Session } from '../types';
 import { formatTime } from '../utils';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface TrackingModalProps {
   onClose: () => void;
@@ -34,6 +35,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   const [diary, setDiary] = useState(() => localStorage.getItem('ht_diary') || '');
 
   const [errorMsg, setErrorMsg] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Persist state to localstorage
   useEffect(() => {
@@ -156,37 +158,44 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   };
 
   const handleSave = () => {
-    const generateUUID = () => {
-      if (crypto && crypto.randomUUID) return crypto.randomUUID();
-      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-      });
-    };
+    setIsProcessing(true);
+    
+    // Simulate 1.5-second processing state to increase perceived value
+    setTimeout(() => {
+      const generateUUID = () => {
+        if (crypto && crypto.randomUUID) return crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      };
 
-    const newSession = {
-      id: generateUUID(),
-      user_id: '', // Will be set by App
-      game_name: gameName,
-      planned_mins: Number(plannedTime),
-      actual_seconds: actualTime,
-      baseline_mood: baselineMood,
-      satisfaction: satisfaction,
-      duration_perception: durationPerception,
-      end_mood: endMood,
-      control_score: control,
-      diary_entry: diary,
-      analyzer_tip: generateAnalyzerTip(),
-      created_at: new Date().toISOString()
-    } as Session;
-    clearSessionStorage();
-    onSave(newSession);
+      const newSession = {
+        id: generateUUID(),
+        user_id: '', // Will be set by App
+        game_name: gameName,
+        planned_mins: Number(plannedTime),
+        actual_seconds: actualTime,
+        baseline_mood: baselineMood,
+        satisfaction: satisfaction,
+        duration_perception: durationPerception,
+        end_mood: endMood,
+        control_score: control,
+        diary_entry: diary,
+        analyzer_tip: generateAnalyzerTip(),
+        created_at: new Date().toISOString()
+      } as Session;
+      
+      clearSessionStorage();
+      setIsProcessing(false);
+      onSave(newSession);
+    }, 1500);
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col p-6 animate-in slide-in-from-bottom-8 duration-300">
+    <div className="min-h-screen bg-slate-950/80 backdrop-blur-md flex flex-col p-6 animate-in slide-in-from-bottom-8 duration-300">
       <header className="flex justify-between items-center py-4">
-        <h2 className="text-xl font-bold bg-gradient-to-r from-primary-300 to-primary-400 bg-clip-text text-transparent">
+        <h2 className="text-xl font-bold bg-gradient-to-r from-primary-300 to-primary-400 bg-clip-text text-transparent uppercase tracking-wide">
           {step === 1 ? 'New Session' : step === 2 ? 'Active Session' : 'Reflection'}
         </h2>
         
@@ -374,10 +383,24 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
 
             <button 
               onClick={handleSave}
-              className="w-full mt-4 bg-gradient-to-r from-primary-grad-from to-primary-grad-to hover:opacity-90 text-white font-bold py-4 rounded-xl shadow-xl shadow-primary-900/20 flex justify-center items-center gap-2 transition-all active:scale-[0.98]"
+              disabled={isProcessing}
+              className={`w-full mt-4 flex justify-center items-center gap-2 transition-all font-bold py-4 rounded-xl shadow-xl ${
+                isProcessing 
+                  ? 'bg-primary-900 border border-primary-500/30 text-primary-300 cursor-default' 
+                  : 'bg-gradient-to-r from-primary-600 to-primary-500 hover:opacity-90 text-white active:scale-[0.98] shadow-primary-900/20'
+              }`}
             >
-              <Check size={20} />
-              Save & Analyze
+              {isProcessing ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  Processing Data...
+                </>
+              ) : (
+                <>
+                  <Check size={20} />
+                  Save & Analyze
+                </>
+              )}
             </button>
           </div>
         )}
@@ -399,12 +422,6 @@ function ScaleQuestion({ label, value, onChange, leftText, rightText, centerIsId
           const isSelected = value === num;
           
           let activeClass = 'bg-primary-600 text-white';
-          if (centerIsIdeal && isSelected) {
-            // For duration perception, 3 is ideal, 1/5 are extremes
-            if (num === 3) activeClass = 'bg-teal-500 text-white';
-            else if (num === 1 || num === 5) activeClass = 'bg-rose-500 text-white';
-            else activeClass = 'bg-primary-500 text-white';
-          }
 
           return (
             <button

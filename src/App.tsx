@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, List, Settings as SettingsIcon, LogOut } from 'lucide-react';
+import { Home, List, Settings as SettingsIcon, LogOut, CheckCircle2 } from 'lucide-react';
 import { Session, Profile } from './types';
 import Dashboard from './components/Dashboard';
 import Logs from './components/Logs';
@@ -8,6 +8,7 @@ import TrackingModal from './components/TrackingModal';
 import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
 import { supabase } from './lib/supabase';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function App() {
   const [sessionUser, setSessionUser] = useState<any>(null);
@@ -19,6 +20,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('habit_tracker_theme') || 'default');
+  const [toastMsg, setToastMsg] = useState('');
 
   useEffect(() => {
     localStorage.setItem('habit_tracker_theme', theme);
@@ -127,6 +129,9 @@ export default function App() {
     const newSessionWithUserId = { ...session, user_id: sessionUser.id };
     setSessions(prev => [newSessionWithUserId, ...prev]);
     setIsTracking(false);
+    
+    setToastMsg('Session Tracking Saved!');
+    setTimeout(() => setToastMsg(''), 3000);
 
     try {
       const { error } = await supabase
@@ -199,12 +204,27 @@ export default function App() {
       <div className="max-w-md mx-auto h-screen relative flex flex-col shadow-2xl bg-slate-950 sm:border-x sm:border-slate-800">
         
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto pb-24">
+        <main className="flex-1 overflow-y-auto pb-24 relative">
           <div className="absolute top-4 right-6 z-10 flex gap-2">
             <button onClick={handleSignOut} className="p-2 text-slate-500 hover:text-rose-400 transition-colors bg-slate-900 rounded-full border border-slate-800" title="Sign Out">
               <LogOut size={16} />
             </button>
           </div>
+          
+          <AnimatePresence>
+            {toastMsg && (
+              <motion.div 
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/50 backdrop-blur-md px-4 py-2 rounded-full shadow-lg shadow-emerald-500/10 text-emerald-100 font-medium whitespace-nowrap text-sm"
+              >
+                <CheckCircle2 size={16} className="text-emerald-400" />
+                {toastMsg}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {activeTab === 'dashboard' && <Dashboard sessions={sessions} onStartSession={() => setIsTracking(true)} />}
            {activeTab === 'logs' && <Logs sessions={sessions} />}
            {activeTab === 'settings' && (

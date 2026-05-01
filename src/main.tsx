@@ -4,9 +4,12 @@ import App from './App.tsx';
 import './index.css';
 
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
+  public state = { hasError: false, error: null as Error | null };
+  public props: { children: React.ReactNode };
+
   constructor(props: {children: React.ReactNode}) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.props = props;
   }
 
   static getDerivedStateFromError(error: Error) {
@@ -32,6 +35,12 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
     return this.props.children;
   }
 }
+
+window.addEventListener('unhandledrejection', (event) => {
+  if (event.reason && event.reason.message && event.reason.message.includes('steal')) {
+    event.preventDefault();
+  }
+});
 
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
