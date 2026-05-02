@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Home, List, Settings as SettingsIcon, LogOut, CheckCircle2 } from 'lucide-react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Session, Profile } from './types';
 import Dashboard from './components/Dashboard';
 import Logs from './components/Logs';
@@ -390,6 +391,7 @@ export default function App() {
           }} />
         )}
       </div>
+      <SpeedInsights />
     </div>
   );
 }
