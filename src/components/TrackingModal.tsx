@@ -250,7 +250,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950/80 backdrop-blur-md flex flex-col p-6 animate-in slide-in-from-bottom-8 duration-300">
+    <div className="min-h-full h-full overflow-y-auto bg-slate-950/80 backdrop-blur-md flex flex-col p-6 animate-in slide-in-from-bottom-8 duration-300">
       <header className="flex justify-between items-center py-4">
         <h2 className="text-xl font-bold bg-gradient-to-r from-primary-300 to-primary-400 bg-clip-text text-transparent uppercase tracking-wide">
           {step === 1 ? 'New Session' : step === 2 ? 'Active Session' : 'Reflection'}
