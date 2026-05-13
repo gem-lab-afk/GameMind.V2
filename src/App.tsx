@@ -418,7 +418,19 @@ export default function App() {
         {/* Full Screen Modals */}
         {!profile && (
           <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm">
-            <Onboarding userId={sessionUser.id} onComplete={() => fetchProfile(sessionUser.id)} />
+            <Onboarding 
+              userId={sessionUser.id} 
+              onComplete={(newProfile) => {
+                if (newProfile) {
+                  setProfile(newProfile);
+                  if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
+                    setTimeout(() => setShowWhatsNew(true), 1500);
+                  }
+                } else {
+                  fetchProfile(sessionUser.id);
+                }
+              }} 
+            />
           </div>
         )}
 

@@ -91,53 +91,8 @@ export default function AuthScreen({ onGuestLogin }: AuthScreenProps) {
               }
             }}
             providers={[]}
-            redirectTo={`${window.location.origin}/`}
-            view="sign_in"
             theme="dark"
-            magicLink={true}
           />
-          
-          {!acceptedLogos && (
-            <div className="absolute inset-0 z-20 bg-slate-900/80 backdrop-blur-[2px] rounded-xl flex flex-col items-center justify-center p-4 text-center">
-              <p className="text-sm text-slate-300 font-medium mb-4">Please accept our Terms & Conditions to sign up or log in.</p>
-              <Dialog.Root>
-                <Dialog.Trigger asChild>
-                  <button className="bg-primary-600 hover:bg-primary-500 text-white font-bold py-2 px-6 rounded-xl transition-all shadow-lg active:scale-95 text-sm">
-                    View Terms
-                  </button>
-                </Dialog.Trigger>
-                <Dialog.Portal>
-                  <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 animate-in fade-in" />
-                  <Dialog.Content className="fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] w-[90vw] max-w-md bg-slate-900 border border-slate-700 p-6 rounded-2xl shadow-2xl z-50 animate-in fade-in zoom-in-95">
-                    <Dialog.Title className="text-xl font-bold text-white mb-4">Terms & Conditions</Dialog.Title>
-                    <Dialog.Description className="text-sm text-slate-300 mb-6 h-48 overflow-y-auto pr-2 custom-scrollbar">
-                      By using GameMind, you agree to track your gaming habits responsibly. We store your data securely and use it only to provide analytics that help you reflect on your emotional health. We do not sell your personal data. 
-                      <br /><br />
-                      You understand that GameMind is an emotional health tool, not a medical device. Always consult a professional for serious mental health concerns.
-                    </Dialog.Description>
-                    
-                    <div className="flex justify-end gap-3">
-                      <Dialog.Close asChild>
-                        <button className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors">
-                          Cancel
-                        </button>
-                      </Dialog.Close>
-                      <Dialog.Close asChild>
-                        <button 
-                          onClick={() => {
-                            setTimeout(() => setAcceptedLogos(true), 300);
-                          }}
-                          className="px-4 py-2 rounded-lg text-sm font-bold bg-primary-600 hover:bg-primary-500 text-white transition-colors"
-                        >
-                          I Agree
-                        </button>
-                      </Dialog.Close>
-                    </div>
-                  </Dialog.Content>
-                </Dialog.Portal>
-              </Dialog.Root>
-            </div>
-          )}
         </div>
 
         <div className="mt-6 flex flex-col items-center relative z-10">

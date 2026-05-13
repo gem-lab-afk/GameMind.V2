@@ -4,7 +4,7 @@ import { Play } from 'lucide-react';
 
 interface OnboardingProps {
   userId: string;
-  onComplete: () => void;
+  onComplete: (profile?: any) => void;
 }
 
 export default function Onboarding({ userId, onComplete }: OnboardingProps) {
@@ -22,8 +22,7 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       setLoading(true);
 
       if (userId === 'guest_user_12345') {
-        localStorage.setItem('ht_guest_onboarded', 'true');
-        localStorage.setItem('ht_guest_profile', JSON.stringify({
+        const guestProfile = {
           id: userId,
           username: 'Guest',
           platform: 'None defined',
@@ -31,27 +30,31 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
           platforms: [],
           genres: [],
           app_goal: 'Skipped Onboarding'
-        }));
-        onComplete();
+        };
+        localStorage.setItem('ht_guest_onboarded', 'true');
+        localStorage.setItem('ht_guest_profile', JSON.stringify(guestProfile));
+        onComplete(guestProfile);
         return;
       }
 
-      await supabase.from('profiles').upsert([
-        {
-          id: userId,
-          username: 'Gamer',
-          platform: 'None defined',
-          primary_genre: 'None defined',
-          platforms: [],
-          genres: [],
-          app_goal: 'Skipped Onboarding'
-        }
-      ], { onConflict: 'id' });
+      const profileData = {
+        id: userId,
+        username: 'Gamer',
+        platform: 'None defined',
+        primary_genre: 'None defined',
+        app_goal: 'Skipped Onboarding'
+      };
+
+      const { error } = await supabase.from('profiles').upsert([profileData], { onConflict: 'id' });
       
-      onComplete();
-    } catch (err) {
-      console.error(err);
-      onComplete();
+      if (error) {
+        throw error;
+      }
+      
+      onComplete({ ...profileData, platforms: [], genres: [] });
+    } catch (err: any) {
+      console.error("Supabase Insert Error:", err);
+      setErrorMsg("Oops! Couldn't save profile. Try again.");
     } finally {
       setLoading(false);
     }
@@ -62,8 +65,7 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       setLoading(true);
 
       if (userId === 'guest_user_12345') {
-        localStorage.setItem('ht_guest_onboarded', 'true');
-        localStorage.setItem('ht_guest_profile', JSON.stringify({
+        const guestProfile = {
           id: userId,
           username: username || 'Guest',
           platform: platforms.join(', ') || 'Mixed',
@@ -71,28 +73,28 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
           platforms: platforms,
           genres: genres,
           app_goal: goal || 'Self-improvement'
-        }));
-        onComplete();
+        };
+        localStorage.setItem('ht_guest_onboarded', 'true');
+        localStorage.setItem('ht_guest_profile', JSON.stringify(guestProfile));
+        onComplete(guestProfile);
         return;
       }
 
-      const { error } = await supabase.from('profiles').upsert([
-        {
-          id: userId,
-          username,
-          platform: platforms.join(', '),
-          primary_genre: genres.join(', '),
-          platforms: platforms,
-          genres: genres,
-          app_goal: goal
-        }
-      ], { onConflict: 'id' });
+      const profileData = {
+        id: userId,
+        username,
+        platform: platforms.join(', '),
+        primary_genre: genres.join(', '),
+        app_goal: goal
+      };
+
+      const { error } = await supabase.from('profiles').upsert([profileData], { onConflict: 'id' });
       
       if (error) {
         throw error;
       }
       
-      onComplete();
+      onComplete({ ...profileData, platforms, genres });
     } catch (error: any) {
       console.error("Supabase Insert Error:", error);
       setErrorMsg("Oops! Couldn't save profile. Try again.");
