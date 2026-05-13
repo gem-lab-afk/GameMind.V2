@@ -30,53 +30,65 @@ export default function App() {
 
   // Auth & Profile Initialization
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error('Session fetch error:', error);
-        if (error.message.includes('Refresh Token Not Found') || error.status === 400) {
-          supabase.auth.signOut().then(() => {
+    let mounted = true;
+    let authChecked = false;
+
+    const initialize = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (!mounted) return;
+        authChecked = true;
+
+        if (error) {
+          console.error('Session fetch error:', error);
+          if (error.message.includes('Refresh Token Not Found') || error.status === 400) {
+            await supabase.auth.signOut();
             localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL + '-auth-token');
             window.location.reload(); 
-          });
-          return;
+            return;
+          }
         }
-      }
 
-      if (session?.user) {
-        setSessionUser(session.user);
-        fetchProfile(session.user.id);
-      } else {
-        if (localStorage.getItem('ht_is_guest') !== 'true') {
-          setSessionUser(null);
-          setProfile(null);
-          setSessions([]);
+        if (session?.user) {
+          setSessionUser(session.user);
+          await fetchProfile(session.user.id);
         } else {
-          setSessionUser({
-            id: 'guest_user_12345',
-            email: 'guest@gamemind.app',
-          } as any);
-          setProfile({
-            id: 'guest_user_12345',
-            username: 'Guest Player',
-            platforms: ['PC'],
-            genres: ['RPG'],
-            app_goal: 'Testing GameMind out',
-            created_at: new Date().toISOString()
-          } as any);
+          if (localStorage.getItem('ht_is_guest') === 'true') {
+            setSessionUser({ id: 'guest_user_12345', email: 'guest@gamemind.app' } as any);
+            setProfile({
+              id: 'guest_user_12345',
+              username: 'Guest Player',
+              platforms: ['PC'],
+              genres: ['RPG'],
+              app_goal: 'Testing GameMind out',
+              created_at: new Date().toISOString()
+            } as any);
+            setIsInitializing(false);
+          } else {
+            setSessionUser(null);
+            setProfile(null);
+            setSessions([]);
+            setIsInitializing(false);
+          }
         }
+      } catch (err) {
+        console.error('Initialization error:', err);
         setIsInitializing(false);
       }
-    }).catch(err => {
-      console.error('Session error:', err);
-      setIsInitializing(false);
-    });
+    };
+
+    initialize();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+      
+      // If we are already initialized and the session hasn't changed to a new user, 
+      // we might want to skip redundant profile fetches for internal events like TOKEN_REFRESHED
       if (session?.user) {
+        const isNewUser = !sessionUser || sessionUser.id !== session.user.id;
         setSessionUser(session.user);
-        // Only fetch if profile is currently null to avoid redundant requests
-        // or if explicitly signing in/signing up
-        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        
+        if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && !authChecked) || (event === 'USER_UPDATED' && isNewUser)) {
           fetchProfile(session.user.id);
         }
         
@@ -94,11 +106,19 @@ export default function App() {
     });
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
 
   const fetchProfile = async (userId: string) => {
+    console.log('Fetching profile for:', userId);
+    // Safety timeout: never let the loading screen hang more than 8 seconds
+    const safetyTimeout = setTimeout(() => {
+      console.warn('Profile fetch safety timeout reached for:', userId);
+      setIsInitializing(false);
+    }, 8000);
+
     try {
       if (!profile) {
         setIsInitializing(true);
@@ -110,15 +130,8 @@ export default function App() {
           if (storedProfile) {
             setProfile(JSON.parse(storedProfile));
           } else {
-            setProfile({
-              id: 'guest_user_12345',
-              username: 'Guest User',
-              platform: 'Various',
-              primary_genre: 'Various',
-              platforms: [],
-              genres: [],
-              app_goal: 'Explore'
-            });
+            console.log('Guest onboarded but profile missing, resetting...');
+            setProfile(null);
           }
         } else {
           setProfile(null); // Keep it null to trigger onboarding
@@ -135,9 +148,15 @@ export default function App() {
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle(); // Better than single() as it doesn't throw on 0 rows
       
-      if (!error && data) {
+      if (error) {
+        console.error('Supabase profile fetch error:', error);
+        throw error;
+      }
+
+      if (data) {
+        console.log('Profile found:', data.username);
         if (!data.platforms && data.platform) data.platforms = data.platform.split(', ');
         if (!data.genres && data.primary_genre) data.genres = data.primary_genre.split(', ');
         setProfile(data);
@@ -147,16 +166,19 @@ export default function App() {
           setTimeout(() => setShowWhatsNew(true), 1500);
         }
       } else {
+        console.log('No profile found in DB for user:', userId);
         setProfile(null);
       }
     } catch (err: any) {
-      console.error('Profile fetch error:', err);
+      console.error('Profile fetch internal error:', err);
       // If we get an auth error during profile fetch, the initial session might be stale
-      if (err?.status === 401 || (err?.message && err.message.includes('Refresh Token Not Found'))) {
+      if (err?.status === 401 || (err?.message && (err.message.includes('Refresh Token Not Found') || err.message.includes('invalid_refresh_token')))) {
+        console.warn('Auth token invalid. Signing out...');
         supabase.auth.signOut();
       }
       setProfile(null);
     } finally {
+      clearTimeout(safetyTimeout);
       setIsInitializing(false);
     }
   };
@@ -342,10 +364,26 @@ export default function App() {
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
         <div className="animate-pulse flex flex-col items-center">
            <div className="w-12 h-12 bg-primary-500 rounded-full mb-4 animate-bounce"></div>
            <p className="text-slate-400 font-medium">Loading GameMind...</p>
+        </div>
+        
+        <div className="mt-8 flex flex-col items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-1000 delay-500">
+          <button 
+            onClick={() => window.location.reload()}
+            className="text-xs text-primary-400 hover:text-primary-300 font-medium tracking-widest uppercase border border-primary-500/30 px-6 py-2 rounded-full transition-all"
+          >
+            Connection taking too long? Retry
+          </button>
+          
+          <button 
+            onClick={handleGuestLogin}
+            className="text-xs text-slate-500 hover:text-slate-400 font-medium"
+          >
+            Continue as Guest anyway
+          </button>
         </div>
       </div>
     );
