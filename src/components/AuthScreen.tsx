@@ -91,6 +91,7 @@ export default function AuthScreen({ onGuestLogin }: AuthScreenProps) {
               }
             }}
             providers={[]}
+            redirectTo={window.location.origin}
             theme="dark"
           />
         </div>

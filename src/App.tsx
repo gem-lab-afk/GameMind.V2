@@ -30,18 +30,12 @@ export default function App() {
 
   // Auth & Profile Initialization
   useEffect(() => {
-    let initTimeout = setTimeout(() => {
-      setIsInitializing(false);
-    }, 5000);
-
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         console.error('Session fetch error:', error);
-        // Specifically handle "Refresh Token Not Found" or other fatal auth errors 
-        // to prevent being stuck in a broken state
         if (error.message.includes('Refresh Token Not Found') || error.status === 400) {
           supabase.auth.signOut().then(() => {
-            localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL + '-auth-token'); // Force clear as fallback
+            localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL + '-auth-token');
             window.location.reload(); 
           });
           return;
@@ -50,7 +44,7 @@ export default function App() {
 
       if (session?.user) {
         setSessionUser(session.user);
-        fetchProfile(session.user.id, initTimeout);
+        fetchProfile(session.user.id);
       } else {
         if (localStorage.getItem('ht_is_guest') !== 'true') {
           setSessionUser(null);
@@ -71,21 +65,21 @@ export default function App() {
           } as any);
         }
         setIsInitializing(false);
-        clearTimeout(initTimeout);
       }
     }).catch(err => {
       console.error('Session error:', err);
       setIsInitializing(false);
-      clearTimeout(initTimeout);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Handle fatal refresh errors or logouts
       if (session?.user) {
         setSessionUser(session.user);
-        fetchProfile(session.user.id);
+        // Only fetch if profile is currently null to avoid redundant requests
+        // or if explicitly signing in/signing up
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+          fetchProfile(session.user.id);
+        }
         
-        // Edge Function Logic Framework: Track Last Login
         try {
           await supabase.from('profiles').update({ last_login: new Date().toISOString() as any }).eq('id', session.user.id);
         } catch (e) {}
@@ -94,32 +88,21 @@ export default function App() {
           setSessionUser(null);
           setProfile(null);
           setSessions([]);
-        } else {
-          setSessionUser({
-            id: 'guest_user_12345',
-            email: 'guest@gamemind.app',
-          } as any);
-          setProfile({
-            id: 'guest_user_12345',
-            username: 'Guest Player',
-            platforms: ['PC'],
-            genres: ['RPG'],
-            app_goal: 'Testing GameMind out',
-            created_at: new Date().toISOString()
-          } as any);
         }
         setIsInitializing(false);
       }
     });
 
     return () => {
-      clearTimeout(initTimeout);
       subscription.unsubscribe();
     };
   }, []);
 
-  const fetchProfile = async (userId: string, timeoutId?: NodeJS.Timeout) => {
+  const fetchProfile = async (userId: string) => {
     try {
+      if (!profile) {
+        setIsInitializing(true);
+      }
       if (userId === 'guest_user_12345') {
         const hasOnboarded = localStorage.getItem('ht_guest_onboarded');
         if (hasOnboarded === 'true') {
@@ -175,7 +158,6 @@ export default function App() {
       setProfile(null);
     } finally {
       setIsInitializing(false);
-      if (timeoutId) clearTimeout(timeoutId);
     }
   };
 
