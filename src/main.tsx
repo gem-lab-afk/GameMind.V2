@@ -37,6 +37,17 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 }
 
 window.addEventListener('unhandledrejection', (event) => {
+  if (event.reason && event.reason.message && (event.reason.message.includes('Refresh Token Not Found') || event.reason.message.includes('invalid_refresh_token'))) {
+    console.error('Fatal Auth Error detected. Clearing session...');
+    // We can't import supabase easily here without potential circular dependencies 
+    // but we can clear the common localStorage keys
+    for (const key in localStorage) {
+      if (key.includes('-auth-token')) {
+        localStorage.removeItem(key);
+      }
+    }
+    window.location.reload();
+  }
   if (event.reason && event.reason.message && event.reason.message.includes('steal')) {
     event.preventDefault();
   }

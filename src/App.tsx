@@ -34,7 +34,20 @@ export default function App() {
       setIsInitializing(false);
     }, 5000);
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Session fetch error:', error);
+        // Specifically handle "Refresh Token Not Found" or other fatal auth errors 
+        // to prevent being stuck in a broken state
+        if (error.message.includes('Refresh Token Not Found') || error.status === 400) {
+          supabase.auth.signOut().then(() => {
+            localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL + '-auth-token'); // Force clear as fallback
+            window.location.reload(); 
+          });
+          return;
+        }
+      }
+
       if (session?.user) {
         setSessionUser(session.user);
         fetchProfile(session.user.id, initTimeout);
@@ -66,7 +79,8 @@ export default function App() {
       clearTimeout(initTimeout);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Handle fatal refresh errors or logouts
       if (session?.user) {
         setSessionUser(session.user);
         fetchProfile(session.user.id);
@@ -152,8 +166,13 @@ export default function App() {
       } else {
         setProfile(null);
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Profile fetch error:', err);
+      // If we get an auth error during profile fetch, the initial session might be stale
+      if (err?.status === 401 || (err?.message && err.message.includes('Refresh Token Not Found'))) {
+        supabase.auth.signOut();
+      }
+      setProfile(null);
     } finally {
       setIsInitializing(false);
       if (timeoutId) clearTimeout(timeoutId);
