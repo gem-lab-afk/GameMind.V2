@@ -18,85 +18,98 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
   const [errorMsg, setErrorMsg] = useState('');
 
   const handleSkip = async () => {
+    // Fast path: Update UI immediately so it doesn't feel like it's "taking forever"
+    const profileData = {
+      id: userId,
+      username: 'Gamer',
+      platform: 'None defined',
+      primary_genre: 'None defined',
+      app_goal: 'Skipped Onboarding'
+    };
+
+    const localProfile = { 
+      ...profileData, 
+      platforms: [], 
+      genres: [], 
+      created_at: new Date().toISOString() 
+    };
+
+    localStorage.setItem('ht_onboarded_v2', 'true');
+    console.log('Skipping onboarding (optimistic):', userId);
+    
+    // Call onComplete immediately
+    if (userId === 'guest_user_12345') {
+      localStorage.setItem('ht_guest_onboarded', 'true');
+      localStorage.setItem('ht_guest_profile', JSON.stringify(localProfile));
+      onComplete(localProfile);
+      return;
+    }
+
+    // Still perform the onComplete to hide the modal
+    onComplete(localProfile);
+
+    // Sync to Supabase in the background
     try {
-      setLoading(true);
-
-      if (userId === 'guest_user_12345') {
-        const guestProfile = {
-          id: userId,
-          username: 'Guest',
-          platform: 'None defined',
-          primary_genre: 'None defined',
-          platforms: [],
-          genres: [],
-          app_goal: 'Skipped Onboarding'
-        };
-        localStorage.setItem('ht_guest_onboarded', 'true');
-        localStorage.setItem('ht_guest_profile', JSON.stringify(guestProfile));
-        onComplete(guestProfile);
-        return;
-      }
-
-      const profileData = {
-        id: userId,
-        username: 'Gamer',
-        platform: 'None defined',
-        primary_genre: 'None defined',
-        app_goal: 'Skipped Onboarding'
-      };
-
-      const { error } = await supabase.from('profiles').upsert([profileData], { onConflict: 'id' });
-      
-      if (error) {
-        throw error;
-      }
-      
-      onComplete({ ...profileData, platforms: [], genres: [] });
-    } catch (err: any) {
-      console.error("Supabase Insert Error:", err);
-      setErrorMsg("Oops! Couldn't save profile. Try again.");
-    } finally {
-      setLoading(false);
+      await supabase.from('profiles').upsert([profileData], { onConflict: 'id' });
+      console.log('Background skip sync successful');
+    } catch (err) {
+      console.error('Background skip sync failed:', err);
     }
   };
 
   const handleSave = async () => {
     try {
       setLoading(true);
-
-      if (userId === 'guest_user_12345') {
-        const guestProfile = {
-          id: userId,
-          username: username || 'Guest',
-          platform: platforms.join(', ') || 'Mixed',
-          primary_genre: genres.join(', ') || 'Various',
-          platforms: platforms,
-          genres: genres,
-          app_goal: goal || 'Self-improvement'
-        };
-        localStorage.setItem('ht_guest_onboarded', 'true');
-        localStorage.setItem('ht_guest_profile', JSON.stringify(guestProfile));
-        onComplete(guestProfile);
-        return;
-      }
+      console.log('Saving onboarding for:', userId);
 
       const profileData = {
         id: userId,
-        username,
+        username: username || 'Guest',
         platform: platforms.join(', '),
         primary_genre: genres.join(', '),
         app_goal: goal
       };
 
-      const { error } = await supabase.from('profiles').upsert([profileData], { onConflict: 'id' });
+      const profileWithTS = { 
+        ...profileData, 
+        platforms, 
+        genres, 
+        created_at: new Date().toISOString() 
+      };
+
+      // OPTIMISTIC: Call onComplete immediately if it's taking too long
+      const safety = setTimeout(() => {
+        setLoading(false);
+        localStorage.setItem('ht_onboarded_v2', 'true');
+        onComplete(profileWithTS);
+      }, 3000);
+
+      if (userId === 'guest_user_12345') {
+        clearTimeout(safety);
+        localStorage.setItem('ht_guest_onboarded', 'true');
+        localStorage.setItem('ht_guest_profile', JSON.stringify(profileWithTS));
+        onComplete(profileWithTS);
+        return;
+      }
+
+      // Upsert into Supabase for cloud persistence
+      const { data, error } = await supabase.from('profiles').upsert([profileData], { onConflict: 'id' }).select('created_at');
+      clearTimeout(safety);
       
       if (error) {
+        console.error('Supabase Save Upsert Error:', error);
         throw error;
       }
       
-      onComplete({ ...profileData, platforms, genres });
+      const finalProfile = {
+        ...profileWithTS,
+        created_at: data?.[0]?.created_at || profileWithTS.created_at
+      };
+
+      localStorage.setItem('ht_onboarded_v2', 'true');
+      onComplete(finalProfile);
     } catch (error: any) {
-      console.error("Supabase Insert Error:", error);
+      console.error("Supabase Save Error Details:", error);
       setErrorMsg("Oops! Couldn't save profile. Try again.");
     } finally {
       setLoading(false);

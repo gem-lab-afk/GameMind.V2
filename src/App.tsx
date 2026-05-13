@@ -28,158 +28,135 @@ export default function App() {
     localStorage.setItem('habit_tracker_theme', theme);
   }, [theme]);
 
+  const isMounted = React.useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
+
   // Auth & Profile Initialization
   useEffect(() => {
-    let mounted = true;
     let authChecked = false;
 
-    const initialize = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (!mounted) return;
-        authChecked = true;
+    const boot = async () => {
+      // Safety timeout for boot: 3s
+      const bootTimeout = setTimeout(() => {
+        if (isMounted.current && isInitializing) setIsInitializing(false);
+      }, 3000);
 
-        if (error) {
-          console.error('Session fetch error:', error);
-          if (error.message.includes('Refresh Token Not Found') || error.status === 400) {
-            await supabase.auth.signOut();
-            localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL + '-auth-token');
-            window.location.reload(); 
-            return;
-          }
+      try {
+        // Optimistic Load: check local storage first
+        const cachedProfile = localStorage.getItem('ht_user_profile_cache');
+        if (cachedProfile) {
+          try {
+             setProfile(JSON.parse(cachedProfile));
+          } catch (e) {}
         }
 
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (!isMounted.current) return;
+        
         if (session?.user) {
           setSessionUser(session.user);
+          // fetchProfile will clear isInitializing
           await fetchProfile(session.user.id);
         } else {
           if (localStorage.getItem('ht_is_guest') === 'true') {
-            setSessionUser({ id: 'guest_user_12345', email: 'guest@gamemind.app' } as any);
-            setProfile({
-              id: 'guest_user_12345',
-              username: 'Guest Player',
-              platforms: ['PC'],
-              genres: ['RPG'],
-              app_goal: 'Testing GameMind out',
-              created_at: new Date().toISOString()
-            } as any);
-            setIsInitializing(false);
+            handleGuestLogin();
           } else {
-            setSessionUser(null);
-            setProfile(null);
-            setSessions([]);
             setIsInitializing(false);
           }
         }
-      } catch (err) {
-        console.error('Initialization error:', err);
-        setIsInitializing(false);
+      } catch (e) {
+        if (isMounted.current) setIsInitializing(false);
+      } finally {
+        clearTimeout(bootTimeout);
+        authChecked = true;
       }
     };
 
-    initialize();
+    boot();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
+      if (!isMounted.current) return;
       
-      // If we are already initialized and the session hasn't changed to a new user, 
-      // we might want to skip redundant profile fetches for internal events like TOKEN_REFRESHED
       if (session?.user) {
-        const isNewUser = !sessionUser || sessionUser.id !== session.user.id;
         setSessionUser(session.user);
-        
-        if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && !authChecked) || (event === 'USER_UPDATED' && isNewUser)) {
+        if (event === 'SIGNED_IN' || !authChecked) {
           fetchProfile(session.user.id);
         }
-        
         try {
-          await supabase.from('profiles').update({ last_login: new Date().toISOString() as any }).eq('id', session.user.id);
+          supabase.from('profiles').update({ last_login: new Date().toISOString() as any }).eq('id', session.user.id);
         } catch (e) {}
-      } else {
-        if (localStorage.getItem('ht_is_guest') !== 'true') {
-          setSessionUser(null);
-          setProfile(null);
-          setSessions([]);
-        }
+      } else if (event === 'SIGNED_OUT') {
+        localStorage.removeItem('ht_user_profile_cache');
+        localStorage.removeItem('ht_onboarded_v2');
+        setSessionUser(null);
+        setProfile(null);
+        setSessions([]);
         setIsInitializing(false);
       }
     });
 
     return () => {
-      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
 
   const fetchProfile = async (userId: string) => {
-    console.log('Fetching profile for:', userId);
-    // Safety timeout: never let the loading screen hang more than 8 seconds
+    if (!userId) return;
+    
+    // Safety timeout: 5s is plenty
     const safetyTimeout = setTimeout(() => {
-      console.warn('Profile fetch safety timeout reached for:', userId);
-      setIsInitializing(false);
-    }, 8000);
+      if (isMounted.current) {
+        console.warn('Profile fetch timeout');
+        setIsInitializing(false);
+      }
+    }, 5000);
 
     try {
-      if (!profile) {
-        setIsInitializing(true);
-      }
       if (userId === 'guest_user_12345') {
         const hasOnboarded = localStorage.getItem('ht_guest_onboarded');
         if (hasOnboarded === 'true') {
           const storedProfile = localStorage.getItem('ht_guest_profile');
-          if (storedProfile) {
-            setProfile(JSON.parse(storedProfile));
-          } else {
-            console.log('Guest onboarded but profile missing, resetting...');
-            setProfile(null);
-          }
-        } else {
-          setProfile(null); // Keep it null to trigger onboarding
-        }
-        
-        // Verify What's New
-        if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
-          setTimeout(() => setShowWhatsNew(true), 1500);
+          if (storedProfile) setProfile(JSON.parse(storedProfile));
         }
         return;
       }
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle(); // Better than single() as it doesn't throw on 0 rows
-      
-      if (error) {
-        console.error('Supabase profile fetch error:', error);
-        throw error;
-      }
+      // We don't set isInitializing(true) here anymore to prevent kicking user out of UI
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle(); 
+      if (error) throw error;
 
       if (data) {
-        console.log('Profile found:', data.username);
-        if (!data.platforms && data.platform) data.platforms = data.platform.split(', ');
-        if (!data.genres && data.primary_genre) data.genres = data.primary_genre.split(', ');
-        setProfile(data);
-        
-        // Verify What's New
+        const processedProfile: Profile = {
+          ...data,
+          platforms: data.platforms || (data.platform ? data.platform.split(', ') : []),
+          genres: data.genres || (data.primary_genre ? data.primary_genre.split(', ') : [])
+        };
+        setProfile(processedProfile);
+        localStorage.setItem('ht_user_profile_cache', JSON.stringify(processedProfile));
+        localStorage.setItem('ht_onboarded_v2', 'true');
         if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
           setTimeout(() => setShowWhatsNew(true), 1500);
         }
       } else {
-        console.log('No profile found in DB for user:', userId);
-        setProfile(null);
+        // ONLY set to null if we don't have a profile cached or in state already
+        // This prevents the "flash back to onboarding" during slow DB syncs
+        if (!localStorage.getItem('ht_onboarded_v2')) {
+          setProfile(null);
+        } else {
+          console.log('Profile fetch returned null, but user is marked as onboarded. Keeping current profile.');
+        }
       }
     } catch (err: any) {
-      console.error('Profile fetch internal error:', err);
-      // If we get an auth error during profile fetch, the initial session might be stale
-      if (err?.status === 401 || (err?.message && (err.message.includes('Refresh Token Not Found') || err.message.includes('invalid_refresh_token')))) {
-        console.warn('Auth token invalid. Signing out...');
-        supabase.auth.signOut();
-      }
+      console.error('Profile fetch error', err);
+      if (err?.status === 401) supabase.auth.signOut();
       setProfile(null);
     } finally {
       clearTimeout(safetyTimeout);
-      setIsInitializing(false);
+      if (isMounted.current) setIsInitializing(false);
     }
   };
 
@@ -328,6 +305,8 @@ export default function App() {
 
   const handleSignOut = async () => {
     clearLocalAuthAndTracking();
+    localStorage.removeItem('ht_user_profile_cache');
+    localStorage.removeItem('ht_onboarded_v2');
     if (sessionUser?.id === 'guest_user_12345') {
       setSessionUser(null);
       setProfile(null);
@@ -462,6 +441,7 @@ export default function App() {
               onComplete={(newProfile) => {
                 if (newProfile) {
                   setProfile(newProfile);
+                  localStorage.setItem('ht_user_profile_cache', JSON.stringify(newProfile));
                   if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
                     setTimeout(() => setShowWhatsNew(true), 1500);
                   }
