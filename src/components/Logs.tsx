@@ -52,7 +52,7 @@ export default function Logs({ sessions }: LogsProps) {
                       <Gamepad2 className="text-primary-400" size={20} />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-slate-200">{session.game_name}</h3>
+                      <h3 className="font-semibold text-slate-200">{Array.isArray(session.game_name) ? session.game_name.join(', ') : session.game_name}</h3>
                       <p className="text-xs text-slate-500">{date}</p>
                     </div>
                   </div>

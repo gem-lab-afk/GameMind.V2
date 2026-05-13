@@ -17,25 +17,73 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const handleSkip = async () => {
+    try {
+      setLoading(true);
+
+      if (userId === 'guest_user_12345') {
+        localStorage.setItem('ht_guest_onboarded', 'true');
+        localStorage.setItem('ht_guest_profile', JSON.stringify({
+          id: userId,
+          username: 'Guest',
+          platform: 'None defined',
+          primary_genre: 'None defined',
+          platforms: [],
+          genres: [],
+          app_goal: 'Skipped Onboarding'
+        }));
+        onComplete();
+        return;
+      }
+
+      await supabase.from('profiles').upsert([
+        {
+          id: userId,
+          username: 'Gamer',
+          platform: 'None defined',
+          primary_genre: 'None defined',
+          platforms: [],
+          genres: [],
+          app_goal: 'Skipped Onboarding'
+        }
+      ], { onConflict: 'id' });
+      
+      onComplete();
+    } catch (err) {
+      console.error(err);
+      onComplete();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     try {
       setLoading(true);
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !sessionData.session || !sessionData.session.user.id) {
-        console.error("Session missing or invalid:", sessionError);
-        setErrorMsg("Session expired or invalid. Please sign in again.");
-        setTimeout(() => onComplete(), 2000);
+      if (userId === 'guest_user_12345') {
+        localStorage.setItem('ht_guest_onboarded', 'true');
+        localStorage.setItem('ht_guest_profile', JSON.stringify({
+          id: userId,
+          username: username || 'Guest',
+          platform: platforms.join(', ') || 'Mixed',
+          primary_genre: genres.join(', ') || 'Various',
+          platforms: platforms,
+          genres: genres,
+          app_goal: goal || 'Self-improvement'
+        }));
+        onComplete();
         return;
       }
 
       const { error } = await supabase.from('profiles').upsert([
         {
-          id: sessionData.session.user.id,
+          id: userId,
           username,
           platform: platforms.join(', '),
           primary_genre: genres.join(', '),
+          platforms: platforms,
+          genres: genres,
           app_goal: goal
         }
       ], { onConflict: 'id' });
@@ -54,10 +102,8 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2070&auto=format&fit=crop')" }}>
-      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"></div>
-      
-      <div className="w-full max-w-md bg-slate-900/80 border border-slate-700/50 p-8 rounded-3xl shadow-2xl relative z-10 animate-in fade-in slide-in-from-bottom-8 duration-500">
+    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-md bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl relative z-10 animate-in fade-in slide-in-from-bottom-8 duration-500">
         
         {errorMsg && (
           <div className="mb-4 bg-rose-500/10 border border-rose-500/50 text-rose-400 p-3 rounded-xl text-sm font-medium text-center">
@@ -209,10 +255,19 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
         )}
 
         {/* Progress indicators */}
-        <div className="flex justify-center gap-2 mt-8">
-          {[1,2,3,4].map(s => (
-            <div key={s} className={`h-1.5 rounded-full transition-all ${step >= s ? 'w-8 bg-primary-500' : 'w-4 bg-slate-800'}`}></div>
-          ))}
+        <div className="flex flex-col items-center gap-4 mt-8">
+          <div className="flex justify-center gap-2">
+            {[1,2,3,4].map(s => (
+              <div key={s} className={`h-1.5 rounded-full transition-all ${step >= s ? 'w-8 bg-primary-500' : 'w-4 bg-slate-800'}`}></div>
+            ))}
+          </div>
+          
+          <button 
+            onClick={handleSkip}
+            className="text-xs text-slate-500 hover:text-slate-300 font-medium tracking-wide"
+          >
+            Not right now? Skip for now.
+          </button>
         </div>
       </div>
     </div>

@@ -1,8 +1,14 @@
 import React, { useMemo } from 'react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Gamepad2, TrendingUp, Clock, Target } from 'lucide-react';
+import { ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { Play, Gamepad2, TrendingUp, Clock, Target, Star, Trophy } from 'lucide-react';
 import { Session } from '../types';
 import { formatTime } from '../utils';
+import { motion, AnimatePresence } from 'motion/react';
+
+const getGameString = (gameField: string | string[]) => {
+  if (Array.isArray(gameField)) return gameField.join(', ');
+  return gameField;
+};
 
 interface DashboardProps {
   sessions: Session[];
@@ -14,17 +20,21 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
     // Last 7 sessions, oldest first for left-to-right chart
     const recent = [...sessions].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).slice(-7);
     return recent.map((s, idx) => ({
-      name: `S${idx + 1}`,
+      name: new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
       endMood: s.end_mood,
-      game: s.game_name
+      duration: Math.round((s.actual_seconds || 0) / 60),
+      game: getGameString(s.game_name)
     }));
   }, [sessions]);
 
-  // Derived stats
-  const stats = useMemo(() => {
-    if (sessions.length === 0) return { avgMood: 0, totalTime: 0, controlRatio: 0 };
+  // Derived stats & XP
+  const { stats, xpData } = useMemo(() => {
+    if (sessions.length === 0) return { 
+      stats: { avgMood: 0, totalTime: 0, controlRatio: 0 },
+      xpData: { xp: 0, level: 1, progress: 0, currentLevelStartingXp: 0, nextLevelXp: 10 }
+    };
     
-    // Average mood last 7 days (or just last 7 sessions like chart)
+    // Average mood last 7 days
     const recent7 = sessions.slice(0, 7);
     const avgMood = recent7.reduce((sum, s) => sum + s.end_mood, 0) / (recent7.length || 1);
     
@@ -35,7 +45,21 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
     const highControlSessions = sessions.filter(s => s.control_score >= 4).length;
     const controlRatio = (highControlSessions / sessions.length) * 100;
 
-    return { avgMood, totalTime, controlRatio };
+    // XP calculation: (Minutes * Control Score)
+    const xp = sessions.reduce((sum, s) => {
+      const mins = Math.max(1, Math.round((s.actual_seconds || 0) / 60));
+      return sum + (mins * (s.control_score || 1));
+    }, 0);
+
+    const level = Math.max(1, Math.floor(Math.sqrt(xp) / 2) + 1);
+    const currentLevelStartingXp = Math.pow((level - 1) * 2, 2);
+    const nextLevelXp = Math.pow(level * 2, 2);
+    const progress = Math.min(100, Math.max(0, ((xp - currentLevelStartingXp) / (nextLevelXp - currentLevelStartingXp)) * 100));
+
+    return { 
+      stats: { avgMood, totalTime, controlRatio },
+      xpData: { xp, level, progress, currentLevelStartingXp, nextLevelXp }
+    };
   }, [sessions]);
 
   const lastSession = sessions.length > 0 ? sessions[0] : null;
@@ -43,8 +67,78 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
   const activeStepStr = localStorage.getItem('ht_step');
   const isTrackingActive = activeStepStr === '2' || activeStepStr === '3';
 
+  // Streak & Retention Logic
+  const [showStreakToast, setShowStreakToast] = React.useState<number | null>(null);
+  const [dailyQuote, setDailyQuote] = React.useState(0);
+
+  React.useEffect(() => {
+    // Generate a random-ish daily quote based on the current day
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
+    setDailyQuote(dayOfYear % 3);
+
+    // Calculate Streak
+    if (sessions.length > 0) {
+      const dates = sessions.map(s => new Date(s.created_at).toDateString());
+      const uniqueDates = Array.from(new Set(dates));
+      
+      let streak = 0;
+      let checkDate = new Date();
+      // Start checking from today or yesterday
+      if (!uniqueDates.includes(checkDate.toDateString())) {
+        checkDate.setDate(checkDate.getDate() - 1); // Check yesterday
+      }
+      
+      while (uniqueDates.includes(checkDate.toDateString())) {
+        streak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+
+      const viewedStreaks = JSON.parse(localStorage.getItem('ht_viewed_streaks') || '[]');
+      if (streak >= 7 && !viewedStreaks.includes(7)) {
+        setShowStreakToast(7);
+      } else if (streak >= 3 && !viewedStreaks.includes(3)) {
+        setShowStreakToast(3);
+      }
+    }
+  }, [sessions]);
+
+  const handleCloseStreak = (streak: number) => {
+    const viewed = JSON.parse(localStorage.getItem('ht_viewed_streaks') || '[]');
+    viewed.push(streak);
+    localStorage.setItem('ht_viewed_streaks', JSON.stringify(viewed));
+    setShowStreakToast(null);
+  };
+
+  const quotes = [
+    "Gaming is a journey, not a marathon. Take breaks to stay sharp.",
+    "Mastering a game takes time; mastering your mind takes consistency.",
+    "A session played with intention is worth ten played on autopilot."
+  ];
+
   return (
-    <div className="p-6 space-y-8 pb-32">
+    <div className="p-6 space-y-8 pb-32 relative">
+      <AnimatePresence>
+        {showStreakToast !== null && (
+          <motion.div 
+            initial={{ opacity: 0, y: -50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9, y: -20 }}
+            className="fixed top-6 left-6 right-6 z-50 bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl p-4 shadow-2xl flex items-center gap-4"
+          >
+            <div className="bg-white/20 p-2 rounded-full">
+              <Trophy className="text-white" size={24} />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-white font-bold tracking-wide">Achievement Unlocked!</h3>
+              <p className="text-white/90 text-sm">{showStreakToast}-Day Streak! Consistency is key.</p>
+            </div>
+            <button onClick={() => handleCloseStreak(showStreakToast)} className="text-white/60 hover:text-white transition-colors bg-black/10 p-2 rounded-full">
+              Dismiss
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <header className="pt-8 text-center animate-in fade-in slide-in-from-top-4 duration-500">
         <h1 className="text-3xl font-extrabold tracking-widest uppercase font-sans text-white drop-shadow-md">
           Game<span className="text-primary-400">Mind</span>
@@ -52,20 +146,59 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
         <p className="text-slate-300 text-sm mt-1">Monitor your screen time & mood</p>
       </header>
 
+      {/* Level Bar Section */}
+      <motion.div 
+        layout
+        className="bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 p-4 shadow-[0_0_20px_rgba(0,0,0,0.3)] relative overflow-hidden group"
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-primary-600/10 to-indigo-600/10 blur-xl opacity-50 group-hover:opacity-100 transition-opacity"></div>
+        <div className="flex justify-between items-end mb-2 relative z-10">
+          <div className="flex items-center gap-2">
+            <div className="bg-primary-500/20 p-1.5 rounded-lg border border-primary-500/30">
+              <Trophy size={18} className="text-primary-400" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Player Level</p>
+              <p className="text-xl font-bold text-white leading-none">{xpData.level}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">XP</p>
+            <p className="text-sm font-bold text-primary-400 leading-none">{Math.floor(xpData.xp)} <span className="text-slate-500 text-xs font-normal">/ {xpData.nextLevelXp}</span></p>
+          </div>
+        </div>
+        <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden relative z-10 shadow-inner">
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${xpData.progress}%` }}
+            transition={{ duration: 1.5, ease: "easeOut" }}
+            className="h-full bg-gradient-to-r from-primary-500 to-indigo-400 relative"
+          >
+            <div className="absolute inset-0 bg-white/20 w-full animate-pulse"></div>
+          </motion.div>
+        </div>
+      </motion.div>
+
       {/* Hero Section */}
       <button 
         onClick={onStartSession} 
-        className="w-full relative group cursor-pointer text-left focus:outline-none rounded-3xl shadow-[0_0_15px_rgba(59,130,246,0.5)] border border-white/20 overflow-hidden hover:scale-[1.02] active:scale-95 transition-transform duration-300"
+        className="w-full relative group cursor-pointer text-left focus:outline-none rounded-3xl shadow-[0_0_25px_rgba(59,130,246,0.3)] border border-white/20 overflow-hidden hover:scale-[1.02] active:scale-95 transition-transform duration-300"
       >
-        <div className="absolute inset-0 bg-gradient-to-r from-primary-600/40 to-primary-400/40 rounded-3xl blur-md opacity-60 group-hover:opacity-100 transition-opacity duration-300"></div>
-        <div className="relative bg-white/10 backdrop-blur-md rounded-3xl p-8 flex flex-col items-center justify-center text-center overflow-hidden">
-          <div className="bg-white/20 p-4 rounded-full mb-4 shadow-lg shadow-black/20">
-            <Play className="text-white ml-1" size={32} />
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-600/40 via-indigo-600/20 to-primary-400/40 rounded-3xl blur-md opacity-80 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div className="relative bg-black/40 backdrop-blur-xl rounded-3xl p-8 flex flex-col items-center justify-center text-center overflow-hidden">
+          <div className="bg-primary-500/20 p-4 rounded-full mb-4 shadow-lg shadow-black/40 border border-primary-500/30 group-hover:scale-110 transition-transform duration-500">
+            <Play className="text-primary-300 ml-1" size={32} />
           </div>
-          <h2 className="text-xl font-bold text-white mb-2 tracking-wide">{isTrackingActive ? 'RESUME SESSION' : 'START SESSION'}</h2>
-          <p className="text-slate-200 text-sm">{isTrackingActive ? 'You have a session in progress.' : 'Track your playtime and feelings.'}</p>
+          <h2 className="text-xl font-bold tracking-widest text-white mb-2 uppercase drop-shadow-md">{isTrackingActive ? 'RESUME SESSION' : 'START SESSION'}</h2>
+          <p className="text-slate-300 text-sm font-medium">{isTrackingActive ? 'You have a session in progress.' : 'Track your playtime and feelings.'}</p>
         </div>
       </button>
+
+      {/* Daily Motivation */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex gap-4 items-center shadow-lg animate-in fade-in slide-in-from-bottom-2">
+        <Star className="text-amber-400 shrink-0" size={24} />
+        <p className="text-sm text-slate-300 italic font-medium">"{quotes[dailyQuote]}"</p>
+      </div>
 
       {sessions.length === 0 ? (
         <div 
@@ -100,35 +233,28 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
 
           {/* Stats Section */}
           <section className="space-y-4">
-            <h3 className="text-lg font-bold tracking-wide text-slate-100 uppercase">Mood Timeline</h3>
-            <div className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-4 h-64 shadow-lg">
+            <h3 className="text-lg font-bold tracking-wide text-slate-100 uppercase">Composite Analytics</h3>
+            <div className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-4 h-72 shadow-lg">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorMood" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--color-primary-500)" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="var(--color-primary-500)" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
+                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff1a" vertical={false} />
                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="left" domain={[0, 'dataMax']} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="right" orientation="right" domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
                   <Tooltip 
                     contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', backdropFilter: 'blur(8px)' }}
-                    itemStyle={{ color: '#fff', fontWeight: 'bold' }}
+                    itemStyle={{ fontWeight: 'bold' }}
                     labelStyle={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}
-                    formatter={(value, name, props) => [`Mood: ${value}`, props.payload.game]}
+                    formatter={(value, name, props) => {
+                      if (name === 'endMood') return [`Mood: ${value}/5`, props.payload.game];
+                      if (name === 'duration') return [`${value} min`, 'Time Played'];
+                      return [value, name];
+                    }}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="endMood" 
-                    stroke="var(--color-primary-500)" 
-                    strokeWidth={3}
-                    fillOpacity={1} 
-                    fill="url(#colorMood)"
-                    activeDot={{ r: 6, fill: 'var(--color-primary-500)', stroke: '#fff', strokeWidth: 2 }}
-                  />
-                </AreaChart>
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
+                  <Bar yAxisId="left" dataKey="duration" name="Time Played (m)" fill="var(--color-primary-500)" radius={[4, 4, 0, 0]} opacity={0.8} />
+                  <Line yAxisId="right" type="monotone" dataKey="endMood" name="End Mood" stroke="#10b981" strokeWidth={3} activeDot={{ r: 6, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }} />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </section>
@@ -145,7 +271,7 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
                     {lastSession.analyzer_tip}
                   </p>
                 </div>
-                <p className="text-xs text-slate-400 mt-4 ml-6 uppercase tracking-wider">From your {lastSession.game_name} session</p>
+                <p className="text-xs text-slate-400 mt-4 ml-6 uppercase tracking-wider">From your {getGameString(lastSession.game_name)} session</p>
               </div>
             </section>
           )}

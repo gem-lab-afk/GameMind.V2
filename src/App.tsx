@@ -106,6 +106,34 @@ export default function App() {
 
   const fetchProfile = async (userId: string, timeoutId?: NodeJS.Timeout) => {
     try {
+      if (userId === 'guest_user_12345') {
+        const hasOnboarded = localStorage.getItem('ht_guest_onboarded');
+        if (hasOnboarded === 'true') {
+          const storedProfile = localStorage.getItem('ht_guest_profile');
+          if (storedProfile) {
+            setProfile(JSON.parse(storedProfile));
+          } else {
+            setProfile({
+              id: 'guest_user_12345',
+              username: 'Guest User',
+              platform: 'Various',
+              primary_genre: 'Various',
+              platforms: [],
+              genres: [],
+              app_goal: 'Explore'
+            });
+          }
+        } else {
+          setProfile(null); // Keep it null to trigger onboarding
+        }
+        
+        // Verify What's New
+        if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
+          setTimeout(() => setShowWhatsNew(true), 1500);
+        }
+        return;
+      }
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -176,6 +204,24 @@ export default function App() {
 
       if (data) {
         setSessions(data);
+        
+        // Retention & Dormancy Logic
+        if (data.length > 0 && userId !== 'guest_user_12345') {
+          const lastSessionDate = new Date(data[0].created_at).getTime();
+          const now = Date.now();
+          const daysSinceLastSession = (now - lastSessionDate) / (1000 * 60 * 60 * 24);
+          
+          if (daysSinceLastSession > 7) {
+            // Simulated Email Trigger
+            console.log(`
+              [SERVERLESS EDGE FUNCTION LOG]
+              Trigger: Dormancy > 7 Days.
+              Action: Preparing automated email for user ${userId}.
+              Subject: "Your Stats are Cooling Down—Ready for a Session?"
+              Body: "We missed you at GameMind! Your XP and Level are waiting. Play your favorite game and log a session today to keep your streak alive."
+            `);
+          }
+        }
       }
     } catch (err) {
       console.error('Unexpected error fetching sessions:', err);
@@ -308,13 +354,9 @@ export default function App() {
     return <AuthScreen onGuestLogin={handleGuestLogin} />;
   }
 
-  if (!profile) {
-    return <Onboarding userId={sessionUser.id} onComplete={() => fetchProfile(sessionUser.id)} />;
-  }
-
   return (
     <div className={`min-h-screen bg-slate-950 text-white font-sans selection:bg-primary-500/30 ${theme !== 'default' ? `theme-${theme}` : ''}`}>
-      <div className="max-w-md mx-auto h-screen relative flex flex-col shadow-2xl bg-slate-950 sm:border-x sm:border-slate-800">
+      <div className="max-w-md mx-auto h-screen relative flex flex-col shadow-2xl bg-slate-950 sm:border-x sm:border-slate-800 overflow-hidden">
         
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto pb-24 relative">
@@ -374,6 +416,12 @@ export default function App() {
         </nav>
 
         {/* Full Screen Modals */}
+        {!profile && (
+          <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm">
+            <Onboarding userId={sessionUser.id} onComplete={() => fetchProfile(sessionUser.id)} />
+          </div>
+        )}
+
         {isTracking && (
           <div className="absolute inset-0 z-50 bg-slate-950">
             <TrackingModal 

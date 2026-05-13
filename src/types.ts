@@ -11,7 +11,7 @@ export interface Profile {
 export interface Session {
   id: string;
   user_id?: string;
-  game_name: string;
+  game_name: string | string[];
   planned_mins: number;
   actual_seconds: number;
   baseline_mood: number;

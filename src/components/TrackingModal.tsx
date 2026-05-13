@@ -13,6 +13,9 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   
   // Step 1 State
   const [gameName, setGameName] = useState(() => localStorage.getItem('ht_game_name') || localStorage.getItem('habit_tracker_default_game') || '');
+  const [extraGames, setExtraGames] = useState<string[]>([]);
+  const [showExtraGames, setShowExtraGames] = useState(false);
+  const [newExtraGame, setNewExtraGame] = useState('');
   const [plannedTime, setPlannedTime] = useState<number | ''>(() => {
     const saved = localStorage.getItem('ht_planned_time');
     if (saved) return Number(saved);
@@ -25,6 +28,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   const [actualTime, setActualTime] = useState(() => Number(localStorage.getItem('ht_actual_time')) || 0); // in seconds
   const [isPaused, setIsPaused] = useState(() => localStorage.getItem('ht_is_paused') === 'true');
   const [lastTick, setLastTick] = useState<number>(() => Number(localStorage.getItem('ht_last_tick')) || Date.now());
+  const [expectedEndTime, setExpectedEndTime] = useState<number>(() => Number(localStorage.getItem('ht_expected_end_time')) || 0);
 
   // Step 3 State
   const [satisfaction, setSatisfaction] = useState(() => Number(localStorage.getItem('ht_satisfaction')) || 3);
@@ -53,67 +57,76 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
 
   // Catch up unmounted time
   useEffect(() => {
-    if (step === 2 && !isPaused) {
+    if (step === 2 && !isPaused && expectedEndTime > 0) {
       const now = Date.now();
-      const savedLastTick = Number(localStorage.getItem('ht_last_tick')) || now;
-      const missedSeconds = Math.floor((now - savedLastTick) / 1000);
-      if (missedSeconds > 0) {
-        setActualTime(prev => prev + missedSeconds);
+      const msLeft = expectedEndTime - now;
+      const totalMs = Number(plannedTime) * 60 * 1000;
+      const elapsedSecs = Math.floor((totalMs - msLeft) / 1000);
+      if (elapsedSecs > 0) {
+        setActualTime(elapsedSecs);
       }
     }
   }, []);
 
+  const togglePause = () => {
+    const now = Date.now();
+    if (isPaused) {
+      // Resuming: push expected string forward
+      const msPaused = now - lastTick;
+      const newEnd = expectedEndTime + msPaused;
+      setExpectedEndTime(newEnd);
+      localStorage.setItem('ht_expected_end_time', newEnd.toString());
+    }
+    setLastTick(now);
+    localStorage.setItem('ht_last_tick', now.toString());
+    setIsPaused(!isPaused);
+  };
+
   // Timer Effect
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (step === 2 && !isPaused) {
+    if (step === 2 && !isPaused && expectedEndTime > 0) {
       interval = setInterval(() => {
-        setActualTime(prev => {
-          const next = prev + 1;
-          document.title = `${formatTime(next)} - Active Session`;
-          
-          // 4. Browser Notifications at 90-minute mark
-          if (next === 5400 && Notification.permission === 'granted' && document.visibilityState === 'hidden') {
-            new Notification("Time for a break?", {
-              body: "You've been playing for 90 minutes. Stretch your legs!",
-              icon: "/favicon.ico"
-            });
-          }
-          
-          // Persistent Timer Notification (System clock)
-          // Showing a notification that replaces itself periodically if tab is hidden
-          if (next % 600 === 0 && Notification.permission === 'granted' && document.visibilityState === 'hidden') {
-             // Optional: a gentle reminder every 10 mins when hidden
-             try {
-                new Notification("GameMind Active", {
-                   body: `Session running: ${formatTime(next)}`,
-                   tag: 'gamemind-timer',
-                   silent: true
-                });
-             } catch(e) {}
-          }
-
-          return next;
-        });
         const now = Date.now();
+        const msLeft = expectedEndTime - now;
+        const totalMs = Number(plannedTime) * 60 * 1000;
+        const next = Math.max(0, Math.floor((totalMs - msLeft) / 1000));
+        
+        setActualTime(next);
+        document.title = `${formatTime(next)} - Active Session`;
+        
+        // 4. Browser Notifications at 90-minute mark
+        if (next === 5400 && Notification.permission === 'granted' && document.visibilityState === 'hidden') {
+          new Notification("Time for a break?", {
+            body: "You've been playing for 90 minutes. Stretch your legs!",
+            icon: "/favicon.ico"
+          });
+        }
+        
+        // Persistent Timer Notification (System clock)
+        if (msLeft <= 0 && msLeft > -1000 && Notification.permission === 'granted' && document.visibilityState === 'hidden') {
+           try {
+              new Notification("Timer Complete", {
+                 body: `You've reached your ${plannedTime} minute goal!`,
+                 tag: 'gamemind-timer',
+                 silent: false
+              });
+           } catch(e) {}
+        }
+        
         setLastTick(now);
         localStorage.setItem('ht_last_tick', now.toString());
+        localStorage.setItem('ht_actual_time', next.toString());
       }, 1000);
     } else if (isPaused) {
-      localStorage.setItem('ht_last_tick', Date.now().toString());
       document.title = 'GameMind';
     }
     return () => clearInterval(interval);
-  }, [step, isPaused]);
+  }, [step, isPaused, expectedEndTime, plannedTime]);
 
   useEffect(() => {
     if (step !== 2) {
       document.title = 'GameMind';
-    } else {
-      // Ask for permission on the first session
-      if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-        Notification.requestPermission();
-      }
     }
     return () => { document.title = 'GameMind'; };
   }, [step]);
@@ -125,8 +138,14 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
     }
     setErrorMsg('');
     setStep(2);
-    setLastTick(Date.now());
-    localStorage.setItem('ht_last_tick', Date.now().toString());
+    const now = Date.now();
+    const end = now + (Number(plannedTime) * 60 * 1000);
+    setExpectedEndTime(end);
+    setLastTick(now);
+    setActualTime(0);
+    localStorage.setItem('ht_expected_end_time', end.toString());
+    localStorage.setItem('ht_last_tick', now.toString());
+    localStorage.setItem('ht_actual_time', '0');
   };
 
   const handleEndSession = () => {
@@ -180,6 +199,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
     localStorage.removeItem('ht_actual_time');
     localStorage.removeItem('ht_is_paused');
     localStorage.removeItem('ht_last_tick');
+    localStorage.removeItem('ht_expected_end_time');
     localStorage.removeItem('ht_satisfaction');
     localStorage.removeItem('ht_durationPerception');
     localStorage.removeItem('ht_endMood');
@@ -211,7 +231,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
       const newSession = {
         id: generateUUID(),
         user_id: '', // Will be set by App
-        game_name: gameName,
+        game_name: extraGames.length > 0 ? [gameName, ...extraGames] : gameName,
         planned_mins: Number(plannedTime),
         actual_seconds: actualTime,
         baseline_mood: baselineMood,
@@ -342,7 +362,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
             {/* Interactive massive interaction area (tap to pause/resume) */}
             <div className="flex-1 w-full flex flex-col items-center justify-center">
                <button 
-                 onClick={() => setIsPaused(!isPaused)}
+                 onClick={togglePause}
                  className="w-48 h-48 rounded-full border border-slate-800 flex items-center justify-center relative cursor-pointer hover:border-primary-500/50 transition-colors group"
                >
                  {!isPaused && <div className="absolute inset-0 rounded-full border border-primary-500/20 animate-ping opacity-20"></div>}
@@ -382,6 +402,52 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
               <div className="text-3xl font-mono font-bold text-white tracking-tight mt-1">
                 {formatTime(actualTime)}
               </div>
+            </div>
+
+            {/* Extra Games Toggle */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+              <div className="flex justify-between items-center cursor-pointer" onClick={() => setShowExtraGames(!showExtraGames)}>
+                <span className="text-sm font-medium text-slate-300">Did you play anything else?</span>
+                <div className={`w-8 h-4 rounded-full border flex items-center transition-colors ${showExtraGames ? 'border-primary-500 bg-primary-500/20' : 'border-slate-700 bg-slate-800'}`}>
+                  <div className={`w-3 h-3 rounded-full bg-slate-300 transition-transform ${showExtraGames ? 'translate-x-4 bg-primary-400' : 'translate-x-0.5'}`} />
+                </div>
+              </div>
+              
+              {showExtraGames && (
+                <div className="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2">
+                  {extraGames.map((g, idx) => (
+                    <div key={idx} className="flex justify-between items-center bg-slate-800/50 px-3 py-2 rounded-lg border border-slate-700/50">
+                      <span className="text-sm text-slate-200">{g}</span>
+                      <button onClick={() => setExtraGames(prev => prev.filter((_, i) => i !== idx))} className="text-slate-500 hover:text-rose-400 transition-colors"><X size={14}/></button>
+                    </div>
+                  ))}
+                  <div className="flex gap-2 relative">
+                    <input 
+                      value={newExtraGame}
+                      onChange={(e) => setNewExtraGame(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newExtraGame.trim()) {
+                          setExtraGames(prev => [...prev, newExtraGame.trim()]);
+                          setNewExtraGame('');
+                        }
+                      }}
+                      placeholder="Tag another game (Enter)"
+                      className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-primary-500"
+                    />
+                    <button 
+                      onClick={() => {
+                        if (newExtraGame.trim()) {
+                          setExtraGames(prev => [...prev, newExtraGame.trim()]);
+                          setNewExtraGame('');
+                        }
+                      }}
+                      className="bg-primary-600 hover:bg-primary-500 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-5">
