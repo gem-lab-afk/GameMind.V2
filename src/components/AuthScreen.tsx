@@ -29,8 +29,30 @@ export default function AuthScreen({ onGuestLogin }: AuthScreenProps) {
       cursorY.set(e.clientY - 150);
     };
     window.addEventListener('mousemove', moveCursor);
+
+    // Observer to intercept and rewrite Supabase generic error messages
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' || mutation.type === 'characterData') {
+          const messageEls = document.querySelectorAll('.supabase-message');
+          messageEls.forEach((el) => {
+            if (el.textContent?.includes('Invalid login credentials')) {
+              el.textContent = 'Incorrect email or password. Please try again.';
+            }
+          });
+        }
+      });
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
     return () => {
       window.removeEventListener('mousemove', moveCursor);
+      observer.disconnect();
     };
   }, []);
 
@@ -88,6 +110,7 @@ export default function AuthScreen({ onGuestLogin }: AuthScreenProps) {
                 container: 'supabase-auth-container',
                 button: 'supabase-button font-bold tracking-wide',
                 input: 'supabase-input',
+                message: 'supabase-message',
               }
             }}
             providers={[]}

@@ -86,9 +86,11 @@ export default function App() {
         if (event === 'SIGNED_IN' || !authChecked) {
           fetchProfile(session.user.id);
         }
-        try {
-          supabase.from('profiles').update({ last_login: new Date().toISOString() as any }).eq('id', session.user.id);
-        } catch (e) {}
+        if (event === 'SIGNED_IN') {
+          try {
+            supabase.from('profiles').update({ last_login: new Date().toISOString() as any }).eq('id', session.user.id);
+          } catch (e) {}
+        }
       } else if (event === 'SIGNED_OUT') {
         localStorage.removeItem('ht_user_profile_cache');
         localStorage.removeItem('ht_onboarded_v2');
@@ -104,14 +106,21 @@ export default function App() {
     };
   }, []);
 
+  const fetchProfileLock = React.useRef<string | null>(null);
+
   const fetchProfile = async (userId: string) => {
     if (!userId) return;
+    
+    // Prevent double-fetching on initialization
+    if (fetchProfileLock.current === userId) return;
+    fetchProfileLock.current = userId;
     
     // Safety timeout: 5s is plenty
     const safetyTimeout = setTimeout(() => {
       if (isMounted.current) {
         console.warn('Profile fetch timeout');
         setIsInitializing(false);
+        fetchProfileLock.current = null;
       }
     }, 5000);
 
@@ -157,6 +166,8 @@ export default function App() {
     } finally {
       clearTimeout(safetyTimeout);
       if (isMounted.current) setIsInitializing(false);
+      // Let subsequent manual fetches work after a short delay
+      setTimeout(() => { fetchProfileLock.current = null; }, 1000);
     }
   };
 
@@ -195,7 +206,8 @@ export default function App() {
         .from('sessions')
         .select('*')
         .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(100);
 
       if (error) {
         console.error('Error fetching sessions:', error);
@@ -339,6 +351,8 @@ export default function App() {
     if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
       setTimeout(() => setShowWhatsNew(true), 1500);
     }
+    
+    setIsInitializing(false);
   };
 
   if (isInitializing) {

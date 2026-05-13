@@ -52,8 +52,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
     localStorage.setItem('ht_control', control.toString());
     localStorage.setItem('ht_diary', diary);
     localStorage.setItem('ht_is_paused', isPaused.toString());
-    localStorage.setItem('ht_actual_time', actualTime.toString());
-  }, [step, gameName, plannedTime, baselineMood, satisfaction, durationPerception, endMood, control, diary, isPaused, actualTime]);
+  }, [step, gameName, plannedTime, baselineMood, satisfaction, durationPerception, endMood, control, diary, isPaused]);
 
   // Catch up unmounted time
   useEffect(() => {
