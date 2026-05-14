@@ -24,13 +24,15 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       username: 'Gamer',
       platform: 'None defined',
       primary_genre: 'None defined',
-      app_goal: 'Skipped Onboarding'
+      app_goal: 'Skipped Onboarding',
+      unlocked_rewards: []
     };
 
     const localProfile = { 
       ...profileData, 
       platforms: [], 
       genres: [], 
+      unlocked_rewards: [],
       created_at: new Date().toISOString() 
     };
 
@@ -67,13 +69,15 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
         username: username || 'Guest',
         platform: platforms.join(', '),
         primary_genre: genres.join(', '),
-        app_goal: goal
+        app_goal: goal,
+        unlocked_rewards: []
       };
 
       const profileWithTS = { 
         ...profileData, 
         platforms, 
         genres, 
+        unlocked_rewards: [],
         created_at: new Date().toISOString() 
       };
 

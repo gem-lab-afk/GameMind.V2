@@ -83,6 +83,13 @@ export default function AuthScreen({ onGuestLogin }: AuthScreenProps) {
         
         {/* Auth / T&C Logic */}
         <div className="relative">
+          {(!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) && (
+            <div className="mb-4 p-4 bg-orange-500/10 border border-orange-500/50 rounded-xl">
+              <p className="text-orange-400 text-sm font-medium text-center shadow-sm">
+                Supabase credentials not found. Please add <code className="bg-orange-500/20 px-1 rounded">VITE_SUPABASE_URL</code> and <code className="bg-orange-500/20 px-1 rounded">VITE_SUPABASE_ANON_KEY</code> to the Settings &rarr; Secrets panel and restart the server.
+              </p>
+            </div>
+          )}
           <Auth
             supabaseClient={supabase}
             appearance={{

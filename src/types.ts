@@ -6,12 +6,19 @@ export interface Profile {
   genres?: string[];
   app_goal?: string;
   created_at: string;
+  level?: number;
+  current_xp?: number;
+  equipped_avatar_frame?: string;
+  equipped_title?: string;
+  unlocked_rewards?: string[];
+  is_public?: boolean;
 }
 
 export interface Session {
   id: string;
   user_id?: string;
-  game_name: string | string[];
+  session_name: string;
+  games_played: string[];
   planned_mins: number;
   actual_seconds: number;
   baseline_mood: number;

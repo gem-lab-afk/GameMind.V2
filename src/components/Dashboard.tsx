@@ -1,21 +1,28 @@
 import React, { useMemo } from 'react';
 import { ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { Play, Gamepad2, TrendingUp, Clock, Target, Star, Trophy } from 'lucide-react';
-import { Session } from '../types';
+import { useNavigate } from 'react-router-dom';
+import { Session, Profile } from '../types';
 import { formatTime } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { calculateProgression } from '../lib/progressionUtils';
+import VirtualPet from './VirtualPet';
 
-const getGameString = (gameField: string | string[]) => {
-  if (Array.isArray(gameField)) return gameField.join(', ');
-  return gameField;
+const getSessionIdentifier = (s: Session) => {
+  if (s.games_played && s.games_played.length > 0) {
+    return s.games_played.join(', ');
+  }
+  return s.session_name;
 };
 
 interface DashboardProps {
   sessions: Session[];
   onStartSession: () => void;
+  profile?: Profile | null;
 }
 
-export default function Dashboard({ sessions, onStartSession }: DashboardProps) {
+export default function Dashboard({ sessions, onStartSession, profile }: DashboardProps) {
+  const navigate = useNavigate();
   const chartData = useMemo(() => {
     // Last 7 sessions, oldest first for left-to-right chart
     const recent = [...sessions].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).slice(-7);
@@ -23,7 +30,7 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
       name: new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
       endMood: s.end_mood,
       duration: Math.round((s.actual_seconds || 0) / 60),
-      game: getGameString(s.game_name)
+      sessionLabel: getSessionIdentifier(s)
     }));
   }, [sessions]);
 
@@ -45,20 +52,16 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
     const highControlSessions = sessions.filter(s => s.control_score >= 4).length;
     const controlRatio = (highControlSessions / sessions.length) * 100;
 
-    // XP calculation: (Minutes * Control Score)
-    const xp = sessions.reduce((sum, s) => {
-      const mins = Math.max(1, Math.round((s.actual_seconds || 0) / 60));
-      return sum + (mins * (s.control_score || 1));
-    }, 0);
+    // XP calculation
+    const { totalXp, level } = calculateProgression(sessions);
 
-    const level = Math.max(1, Math.floor(Math.sqrt(xp) / 2) + 1);
     const currentLevelStartingXp = Math.pow((level - 1) * 2, 2);
     const nextLevelXp = Math.pow(level * 2, 2);
-    const progress = Math.min(100, Math.max(0, ((xp - currentLevelStartingXp) / (nextLevelXp - currentLevelStartingXp)) * 100));
+    const progress = Math.min(100, Math.max(0, ((totalXp - currentLevelStartingXp) / (nextLevelXp - currentLevelStartingXp)) * 100));
 
     return { 
       stats: { avgMood, totalTime, controlRatio },
-      xpData: { xp, level, progress, currentLevelStartingXp, nextLevelXp }
+      xpData: { xp: totalXp, level, progress, currentLevelStartingXp, nextLevelXp }
     };
   }, [sessions]);
 
@@ -139,19 +142,52 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
         )}
       </AnimatePresence>
 
-      <header className="pt-8 text-center animate-in fade-in slide-in-from-top-4 duration-500">
-        <h1 className="text-3xl font-extrabold tracking-widest uppercase font-sans text-white drop-shadow-md">
-          Game<span className="text-primary-400">Mind</span>
-        </h1>
-        <p className="text-slate-300 text-sm mt-1">Monitor your screen time & mood</p>
+      <header className="pt-8 flex justify-between items-center animate-in fade-in slide-in-from-top-4 duration-500">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-widest uppercase font-sans text-white drop-shadow-md">
+            Game<span className="text-primary-400">Mind</span>
+          </h1>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-slate-300 text-sm">Monitor your screen time & mood</p>
+            {profile?.id === 'guest_user_12345' && (
+              <span className="px-1.5 py-0.5 bg-amber-500/10 text-amber-500 text-[8px] font-bold uppercase tracking-tighter border border-amber-500/20 rounded animate-pulse">Guest Node</span>
+            )}
+          </div>
+        </div>
+        
+        {profile && (
+          <div className="flex items-center gap-2 text-right">
+             <div className="hidden sm:block">
+               <p className="text-sm font-bold text-white capitalize">{profile.equipped_title || 'Novice'}</p>
+               <p className="text-xs text-primary-400 font-mono">Lvl {xpData.level}</p>
+             </div>
+             <div className="relative">
+                <div className={`w-12 h-12 bg-slate-800 rounded-full border-2 overflow-hidden ${profile.equipped_avatar_frame || 'border-transparent'}`}>
+                  {profile.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-primary-400">
+                      {profile.username?.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                {/* Virtual Pet next to Avatar */}
+                <div className="absolute -bottom-1 -left-1">
+                   {stats && <VirtualPet averageControlScore={sessions.length > 0 ? sessions.reduce((s, x) => s + (x.control_score || 3), 0) / sessions.length : 3} size={22} />}
+                </div>
+             </div>
+          </div>
+        )}
       </header>
 
       {/* Level Bar Section */}
       <motion.div 
         layout
-        className="bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 p-4 shadow-[0_0_20px_rgba(0,0,0,0.3)] relative overflow-hidden group"
+        onClick={() => navigate('/progression')}
+        className="bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 p-4 shadow-[0_0_20px_rgba(0,0,0,0.3)] relative overflow-hidden group cursor-pointer hover:border-primary-500/50 transition-colors"
+        title="View Progression Dashboard"
       >
-        <div className="absolute inset-0 bg-gradient-to-r from-primary-600/10 to-indigo-600/10 blur-xl opacity-50 group-hover:opacity-100 transition-opacity"></div>
+        <div className="absolute inset-0 bg-gradient-to-r from-primary-600/10 to-indigo-600/10 blur-xl opacity-50 group-hover:opacity-100 group-hover:from-primary-600/30 transition-all duration-300"></div>
         <div className="flex justify-between items-end mb-2 relative z-10">
           <div className="flex items-center gap-2">
             <div className="bg-primary-500/20 p-1.5 rounded-lg border border-primary-500/30">
@@ -236,24 +272,25 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
             <h3 className="text-lg font-bold tracking-wide text-slate-100 uppercase">Composite Analytics</h3>
             <div className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-4 h-72 shadow-lg">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 10, right: 0, left: -10, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff1a" vertical={false} />
-                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis yAxisId="left" domain={[0, 'dataMax']} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis yAxisId="right" orientation="right" domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickMargin={8} />
+                  <YAxis yAxisId="left" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${val}m`} width={35} />
+                  <YAxis yAxisId="right" orientation="right" domain={[1, 5]} ticks={[1, 5]} stroke="#fbbf24" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => val === 5 ? 'High' : val === 1 ? 'Low' : ''} width={35} />
                   <Tooltip 
-                    contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', backdropFilter: 'blur(8px)' }}
+                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                    contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', backdropFilter: 'blur(8px)', padding: '12px' }}
                     itemStyle={{ fontWeight: 'bold' }}
-                    labelStyle={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}
+                    labelStyle={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}
                     formatter={(value, name, props) => {
-                      if (name === 'endMood') return [`Mood: ${value}/5`, props.payload.game];
+                      if (name === 'endMood') return [`Mood: ${value}/5`, props.payload.sessionLabel || 'Session'];
                       if (name === 'duration') return [`${value} min`, 'Time Played'];
                       return [value, name];
                     }}
                   />
-                  <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
-                  <Bar yAxisId="left" dataKey="duration" name="Time Played (m)" fill="var(--color-primary-500)" radius={[4, 4, 0, 0]} opacity={0.8} />
-                  <Line yAxisId="right" type="monotone" dataKey="endMood" name="End Mood" stroke="#10b981" strokeWidth={3} activeDot={{ r: 6, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', color: '#94a3b8', bottom: -10 }} />
+                  <Bar yAxisId="left" dataKey="duration" name="Time Played" fill="var(--color-primary-500)" radius={[4, 4, 0, 0]} opacity={0.8} barSize={24} />
+                  <Line yAxisId="right" type="monotone" dataKey="endMood" name="End Mood" stroke="#fbbf24" strokeWidth={3} activeDot={{ r: 6, fill: '#fbbf24', stroke: '#fff', strokeWidth: 2 }} dot={{ strokeWidth: 2, r: 4 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -271,7 +308,7 @@ export default function Dashboard({ sessions, onStartSession }: DashboardProps) 
                     {lastSession.analyzer_tip}
                   </p>
                 </div>
-                <p className="text-xs text-slate-400 mt-4 ml-6 uppercase tracking-wider">From your {getGameString(lastSession.game_name)} session</p>
+                <p className="text-xs text-slate-400 mt-4 ml-6 uppercase tracking-wider">From your {getSessionIdentifier(lastSession)} session</p>
               </div>
             </section>
           )}

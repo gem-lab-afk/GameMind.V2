@@ -8,14 +8,18 @@ interface TrackingModalProps {
   onSave: (session: Session) => void;
 }
 
+const CHIME_B64 = "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQcGAACAe..."; // Minimal audio wave placeholder if we need it, but using standard base64:
+const NOTIFICATION_CHIME = "data:audio/mp3;base64,//NExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//NExAAABMAAAQAAAwR1A+YEAIAg/4BADAwGBywHAP/8wHAP/8wGCP/4Bgm//4BgW//MExAAAAANIAAAAAExqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
+
 export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   const [step, setStep] = useState<1 | 2 | 3>(() => Number(localStorage.getItem('ht_step')) as any || 1);
   
+  // Audio Refs
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const overtimeAudioPlayed = React.useRef(false);
+
   // Step 1 State
-  const [gameName, setGameName] = useState(() => localStorage.getItem('ht_game_name') || localStorage.getItem('habit_tracker_default_game') || '');
-  const [extraGames, setExtraGames] = useState<string[]>([]);
-  const [showExtraGames, setShowExtraGames] = useState(false);
-  const [newExtraGame, setNewExtraGame] = useState('');
+  const [sessionName, setSessionName] = useState(() => localStorage.getItem('ht_session_name') || localStorage.getItem('habit_tracker_default_game') || '');
   const [plannedTime, setPlannedTime] = useState<number | ''>(() => {
     const saved = localStorage.getItem('ht_planned_time');
     if (saved) return Number(saved);
@@ -31,6 +35,8 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   const [expectedEndTime, setExpectedEndTime] = useState<number>(() => Number(localStorage.getItem('ht_expected_end_time')) || 0);
 
   // Step 3 State
+  const [gamesPlayed, setGamesPlayed] = useState<string[]>([]);
+  const [newGameTag, setNewGameTag] = useState('');
   const [satisfaction, setSatisfaction] = useState(() => Number(localStorage.getItem('ht_satisfaction')) || 3);
   const [durationPerception, setDurationPerception] = useState(() => Number(localStorage.getItem('ht_durationPerception')) || 3);
   const [endMood, setEndMood] = useState(() => Number(localStorage.getItem('ht_endMood')) || 3);
@@ -43,7 +49,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   // Persist state to localstorage
   useEffect(() => {
     localStorage.setItem('ht_step', step.toString());
-    localStorage.setItem('ht_game_name', gameName);
+    localStorage.setItem('ht_session_name', sessionName);
     localStorage.setItem('ht_planned_time', plannedTime.toString());
     localStorage.setItem('ht_baseline_mood', baselineMood.toString());
     localStorage.setItem('ht_satisfaction', satisfaction.toString());
@@ -52,7 +58,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
     localStorage.setItem('ht_control', control.toString());
     localStorage.setItem('ht_diary', diary);
     localStorage.setItem('ht_is_paused', isPaused.toString());
-  }, [step, gameName, plannedTime, baselineMood, satisfaction, durationPerception, endMood, control, diary, isPaused]);
+  }, [step, sessionName, plannedTime, baselineMood, satisfaction, durationPerception, endMood, control, diary, isPaused]);
 
   // Catch up unmounted time
   useEffect(() => {
@@ -94,6 +100,14 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
         setActualTime(next);
         document.title = `${formatTime(next)} - Active Session`;
         
+        // Audio Time Warning (Overtime trigger)
+        if (msLeft <= 0 && !overtimeAudioPlayed.current) {
+          overtimeAudioPlayed.current = true;
+          if (audioRef.current) {
+            audioRef.current.play().catch(err => console.log('Audio play failed', err));
+          }
+        }
+
         // 4. Browser Notifications at 90-minute mark
         if (next === 5400 && Notification.permission === 'granted' && document.visibilityState === 'hidden') {
           new Notification("Time for a break?", {
@@ -131,10 +145,20 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   }, [step]);
 
   const handleStart = () => {
-    if (!gameName.trim() || !plannedTime) {
-      setErrorMsg('Please enter a game name and planned time to start.');
+    if (!sessionName.trim() || !plannedTime) {
+      setErrorMsg('Please enter a session name and planned time to start.');
       return;
     }
+
+    // Initialize and unlock audio object on first user interaction
+    if (!audioRef.current) {
+      audioRef.current = new Audio(NOTIFICATION_CHIME);
+    }
+    audioRef.current.play().then(() => {
+      audioRef.current!.pause();
+      audioRef.current!.currentTime = 0;
+    }).catch(() => console.log('Audio unlock skipped'));
+
     setErrorMsg('');
     setStep(2);
     const now = Date.now();
@@ -157,6 +181,11 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
   };
 
   const generateAnalyzerTip = (): string => {
+    const plannedSecs = Number(plannedTime) * 60;
+    const isOvertime = actualTime > plannedSecs;
+    const overtimeMins = Math.round((actualTime - plannedSecs) / 60);
+    const totalMins = Math.round(actualTime / 60);
+
     let score = 0;
     
     // Evaluate quantitative scale questions out of 5 to determine a session score
@@ -175,6 +204,26 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
     if (durationPerception === 3) score += 1;
     if (durationPerception === 1 || durationPerception === 5) score -= 1;
 
+    // Advanced Time Perception Logic
+    if (isOvertime && overtimeMins > 10) {
+      if (control <= 2 && satisfaction >= 4) {
+        return `Flow State Overtime: You played ${overtimeMins}m longer than planned and lost track of time, but enjoyed it. Fun, but watch out!`;
+      }
+      if (control <= 2 && satisfaction <= 3) {
+        return `Revenge Bedtime Procrastination: You exceeded your time by ${overtimeMins}m and felt out of control without high satisfaction. Try stricter alarms next session.`;
+      }
+      if (durationPerception < 3) {
+        return `Time Distortion: You played longer than planned (${totalMins}m total) but it still felt "too short". This might be overstimulating your reward loops!`;
+      }
+    } else {
+      if (durationPerception > 3) {
+        return `Friction Detected: You played for ${totalMins}m but it felt too long. If your mood didn't improve, this might be feeling like a chore right now.`;
+      }
+      if (durationPerception < 3 && satisfaction >= 4) {
+        return `Leave Them Wanting More: Good job stopping! The session felt short, but satisfaction is high. This is the perfect way to prevent gaming burnout.`;
+      }
+    }
+
     // Based on the final calculated score, provide a heavily weighted quantitative analysis
     if (score >= 4) {
       return "Peak Performance: Your mood improved, and you maintained high control and satisfaction. Keep replicating this environment!";
@@ -192,7 +241,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
 
   const clearSessionStorage = () => {
     localStorage.removeItem('ht_step');
-    localStorage.removeItem('ht_game_name');
+    localStorage.removeItem('ht_session_name');
     localStorage.removeItem('ht_planned_time');
     localStorage.removeItem('ht_baseline_mood');
     localStorage.removeItem('ht_actual_time');
@@ -230,7 +279,8 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
       const newSession = {
         id: generateUUID(),
         user_id: '', // Will be set by App
-        game_name: extraGames.length > 0 ? [gameName, ...extraGames] : gameName,
+        session_name: sessionName,
+        games_played: gamesPlayed,
         planned_mins: Number(plannedTime),
         actual_seconds: actualTime,
         baseline_mood: baselineMood,
@@ -275,12 +325,12 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
           <div className="space-y-8 mt-4">
             <div className="space-y-4">
               <label className="block">
-                <span className="text-sm font-medium text-slate-300 block mb-1">What are you playing?</span>
+                <span className="text-sm font-medium text-slate-300 block mb-1">Name your gaming session (e.g., Ranked Grind, Chill Night)</span>
                 <input 
                   type="text" 
-                  value={gameName}
-                  onChange={e => setGameName(e.target.value)}
-                  placeholder="e.g. Cyberpunk 2077"
+                  value={sessionName}
+                  onChange={e => setSessionName(e.target.value)}
+                  placeholder="e.g. Ranked Grind"
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder:text-slate-600 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all font-medium"
                 />
               </label>
@@ -340,7 +390,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
           <div className="flex flex-col items-center justify-center space-y-12 h-full text-center py-10 relative">
             <div className="space-y-4 w-full">
                <div className="inline-block px-4 py-1.5 rounded-full border border-primary-500/30 bg-primary-500/10 text-primary-300 font-medium tracking-wide text-sm">
-                 Playing {gameName}
+                 Session: {sessionName}
                </div>
                <div 
                  className="text-6xl font-mono font-bold tracking-tighter text-white"
@@ -403,41 +453,41 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
               </div>
             </div>
 
-            {/* Extra Games Toggle */}
+            {/* Game Tagging */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-              <div className="flex justify-between items-center cursor-pointer" onClick={() => setShowExtraGames(!showExtraGames)}>
-                <span className="text-sm font-medium text-slate-300">Did you play anything else?</span>
-                <div className={`w-8 h-4 rounded-full border flex items-center transition-colors ${showExtraGames ? 'border-primary-500 bg-primary-500/20' : 'border-slate-700 bg-slate-800'}`}>
-                  <div className={`w-3 h-3 rounded-full bg-slate-300 transition-transform ${showExtraGames ? 'translate-x-4 bg-primary-400' : 'translate-x-0.5'}`} />
-                </div>
-              </div>
-              
-              {showExtraGames && (
-                <div className="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2">
-                  {extraGames.map((g, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-slate-800/50 px-3 py-2 rounded-lg border border-slate-700/50">
-                      <span className="text-sm text-slate-200">{g}</span>
-                      <button onClick={() => setExtraGames(prev => prev.filter((_, i) => i !== idx))} className="text-slate-500 hover:text-rose-400 transition-colors"><X size={14}/></button>
-                    </div>
-                  ))}
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-slate-300 mb-2">What did you play today?</span>
+                
+                <div className="mt-2 space-y-2">
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {gamesPlayed.map((g, idx) => (
+                      <div key={idx} className="flex items-center gap-1 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">
+                        <span className="text-sm text-slate-200">{g}</span>
+                        <button onClick={() => setGamesPlayed(prev => prev.filter((_, i) => i !== idx))} className="text-slate-500 hover:text-rose-400 ml-1 transition-colors">
+                          <X size={14}/>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  
                   <div className="flex gap-2 relative">
                     <input 
-                      value={newExtraGame}
-                      onChange={(e) => setNewExtraGame(e.target.value)}
+                      value={newGameTag}
+                      onChange={(e) => setNewGameTag(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && newExtraGame.trim()) {
-                          setExtraGames(prev => [...prev, newExtraGame.trim()]);
-                          setNewExtraGame('');
+                        if (e.key === 'Enter' && newGameTag.trim()) {
+                          setGamesPlayed(prev => [...prev, newGameTag.trim()]);
+                          setNewGameTag('');
                         }
                       }}
-                      placeholder="Tag another game (Enter)"
+                      placeholder="Tag a game (Enter)"
                       className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-primary-500"
                     />
                     <button 
                       onClick={() => {
-                        if (newExtraGame.trim()) {
-                          setExtraGames(prev => [...prev, newExtraGame.trim()]);
-                          setNewExtraGame('');
+                        if (newGameTag.trim()) {
+                          setGamesPlayed(prev => [...prev, newGameTag.trim()]);
+                          setNewGameTag('');
                         }
                       }}
                       className="bg-primary-600 hover:bg-primary-500 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -446,7 +496,7 @@ export default function TrackingModal({ onClose, onSave }: TrackingModalProps) {
                     </button>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
 
             <div className="space-y-5">

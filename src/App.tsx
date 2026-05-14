@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Home, List, Settings as SettingsIcon, LogOut, CheckCircle2 } from 'lucide-react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import { Session, Profile } from './types';
 import Dashboard from './components/Dashboard';
 import Logs from './components/Logs';
@@ -8,7 +9,9 @@ import TrackingModal from './components/TrackingModal';
 import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
 import WhatsNewModal from './components/WhatsNewModal';
+import ProgressionPage from './components/ProgressionPage';
 import { supabase } from './lib/supabase';
+import { calculateProgression } from './lib/progressionUtils';
 
 
 export default function App() {
@@ -106,6 +109,14 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleTabChange = (e: any) => {
+      if (e.detail) setActiveTab(e.detail);
+    };
+    window.addEventListener('tab-change', handleTabChange);
+    return () => window.removeEventListener('tab-change', handleTabChange);
+  }, []);
+
   const fetchProfileLock = React.useRef<string | null>(null);
 
   const fetchProfile = async (userId: string) => {
@@ -142,11 +153,16 @@ export default function App() {
         const processedProfile: Profile = {
           ...data,
           platforms: data.platforms || (data.platform ? data.platform.split(', ') : []),
-          genres: data.genres || (data.primary_genre ? data.primary_genre.split(', ') : [])
+          genres: data.genres || (data.primary_genre ? data.primary_genre.split(', ') : []),
+          unlocked_rewards: Array.isArray(data.unlocked_rewards) ? data.unlocked_rewards : []
         };
         setProfile(processedProfile);
         localStorage.setItem('ht_user_profile_cache', JSON.stringify(processedProfile));
         localStorage.setItem('ht_onboarded_v2', 'true');
+        
+        // Sync level/xp if it's a legacy account (no level or mismatched)
+        // We do this after sessions are loaded in a separate effect
+        
         if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
           setTimeout(() => setShowWhatsNew(true), 1500);
         }
@@ -171,6 +187,25 @@ export default function App() {
     }
   };
 
+  // Auto-sync profile level with history for legacy accounts
+  useEffect(() => {
+    if (profile && sessions.length > 0 && sessionUser?.id !== 'guest_user_12345') {
+       const { totalXp, level } = calculateProgression(sessions);
+       const needsSync = profile.level !== level || profile.current_xp !== totalXp;
+       
+       if (needsSync) {
+         console.log('Syncing legacy account levels...');
+         supabase.from('profiles').update({
+           level: level,
+           current_xp: totalXp
+         }).eq('id', profile.id).then(({ error }) => {
+            if (!error) {
+              setProfile(prev => prev ? { ...prev, level, current_xp: totalXp } : null);
+            }
+         });
+       }
+    }
+  }, [profile?.id, sessions.length]);
   // Sessions fetching & REAL-TIME
   useEffect(() => {
     if (sessionUser && profile) {
@@ -179,7 +214,7 @@ export default function App() {
       const channel = supabase.channel('realtime sessions')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'sessions', filter: `user_id=eq.${sessionUser.id}` },
+          { event: '*', schema: 'public', table: 'sessions', filter: `user_id=eq.${String(sessionUser.id)}` },
           (payload) => {
             fetchSessions(sessionUser.id);
           }
@@ -266,6 +301,19 @@ export default function App() {
         setToastMsg('Cloud sync failed.');
       } else {
         console.log('Session successfully saved to Supabase');
+        
+        // Update XP & Level in profile
+        if (profile) {
+          const sessionsWithNew = [newSessionWithUserId, ...sessions];
+          const { totalXp, level: newLevel } = calculateProgression(sessionsWithNew);
+          
+          await supabase.from('profiles').update({
+            current_xp: totalXp,
+            level: newLevel
+          }).eq('id', profile.id);
+          
+          setProfile({ ...profile, current_xp: totalXp, level: newLevel });
+        }
       }
     } catch (err) {
       console.error('Unexpected error saving session:', err);
@@ -306,7 +354,7 @@ export default function App() {
   const clearLocalAuthAndTracking = () => {
     // Clear tracking session and defaults
     const keysToRemove = [
-      'ht_step', 'ht_game_name', 'ht_planned_time', 'ht_baseline_mood',
+      'ht_step', 'ht_session_name', 'ht_planned_time', 'ht_baseline_mood',
       'ht_actual_time', 'ht_is_paused', 'ht_last_tick', 'ht_satisfaction',
       'ht_durationPerception', 'ht_endMood', 'ht_control', 'ht_diary',
       'habit_tracker_default_game', 'habit_tracker_default_time',
@@ -388,101 +436,126 @@ export default function App() {
 
   return (
     <div className={`min-h-screen bg-slate-950 text-white font-sans selection:bg-primary-500/30 ${theme !== 'default' ? `theme-${theme}` : ''}`}>
-      <div className="max-w-md mx-auto h-screen relative flex flex-col shadow-2xl bg-slate-950 sm:border-x sm:border-slate-800 overflow-hidden">
-        
-        {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto pb-24 relative">
-          <div className="absolute top-4 right-6 z-10 flex gap-2">
-            <button onClick={handleSignOut} className="p-2 text-slate-500 hover:text-rose-400 transition-colors bg-slate-900 rounded-full border border-slate-800" title="Sign Out">
-              <LogOut size={16} />
-            </button>
-          </div>
-          
-          <div className="relative">
-            {toastMsg && (
-              <div 
-                className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/50 backdrop-blur-md px-4 py-2 rounded-full shadow-lg shadow-emerald-500/10 text-emerald-100 font-medium whitespace-nowrap text-sm animate-in fade-in slide-in-from-top-4 duration-300"
+      <Routes>
+        <Route path="/progression" element={
+          <ProgressionPage 
+            sessionUser={sessionUser} 
+            profile={profile} 
+            sessions={sessions}
+            onProfileUpdate={(updates) => {
+              setProfile(prev => {
+                const next = prev ? { ...prev, ...updates } : null;
+                if (next) localStorage.setItem('ht_user_profile_cache', JSON.stringify(next));
+                return next;
+              });
+            }}
+          />
+        } />
+        <Route path="*" element={
+          <div className="max-w-md mx-auto h-screen relative flex flex-col shadow-2xl bg-slate-950 sm:border-x sm:border-slate-800 overflow-hidden">
+            
+            {/* Main Content Area */}
+            <main className="flex-1 overflow-y-auto pb-24 relative">
+              <div className="absolute top-4 right-6 z-10 flex gap-2">
+                <button onClick={handleSignOut} className="p-2 text-slate-500 hover:text-rose-400 transition-colors bg-slate-900 rounded-full border border-slate-800" title="Sign Out">
+                  <LogOut size={16} />
+                </button>
+              </div>
+              
+              <div className="relative">
+                {toastMsg && (
+                  <div 
+                    className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/50 backdrop-blur-md px-4 py-2 rounded-full shadow-lg shadow-emerald-500/10 text-emerald-100 font-medium whitespace-nowrap text-sm animate-in fade-in slide-in-from-top-4 duration-300"
+                  >
+                    <CheckCircle2 size={16} className="text-emerald-400" />
+                    {toastMsg}
+                  </div>
+                )}
+              </div>
+
+              {activeTab === 'dashboard' && <Dashboard sessions={sessions} onStartSession={() => setIsTracking(true)} profile={profile} />}
+              {activeTab === 'logs' && <Logs sessions={sessions} />}
+              {activeTab === 'settings' && (
+                <Settings 
+                    profile={profile}
+                    sessions={sessions}
+                    onClearData={handleClearData} 
+                    currentTheme={theme} 
+                    onThemeChange={setTheme} 
+                    onProfileUpdate={(updates) => {
+                      setProfile(prev => {
+                        const next = prev ? { ...prev, ...updates } : null;
+                        if (next) localStorage.setItem('ht_user_profile_cache', JSON.stringify(next));
+                        return next;
+                      });
+                    }}
+                />
+              )}
+            </main>
+
+            {/* Bottom Navigation */}
+            <nav className="absolute bottom-0 w-full bg-slate-950/80 backdrop-blur-xl border-t border-slate-800 p-4 pb-safe flex justify-around">
+              <button 
+                onClick={() => setActiveTab('dashboard')}
+                className={`flex flex-col items-center gap-1.5 p-2 transition-colors ${activeTab === 'dashboard' ? 'text-primary-400' : 'text-slate-500 hover:text-slate-300'}`}
               >
-                <CheckCircle2 size={16} className="text-emerald-400" />
-                {toastMsg}
+                <Home size={24} className={activeTab === 'dashboard' ? 'fill-primary-400/20' : ''} />
+                <span className="text-[10px] font-semibold">Home</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('logs')}
+                className={`flex flex-col items-center gap-1.5 p-2 transition-colors ${activeTab === 'logs' ? 'text-primary-400' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                <List size={24} className={activeTab === 'logs' ? 'fill-primary-400/20' : ''} />
+                <span className="text-[10px] font-semibold">Logs</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('settings')}
+                className={`flex flex-col items-center gap-1.5 p-2 transition-colors ${activeTab === 'settings' ? 'text-primary-400' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                <SettingsIcon size={24} className={activeTab === 'settings' ? 'fill-primary-400/20' : ''} />
+                <span className="text-[10px] font-semibold">Settings</span>
+              </button>
+            </nav>
+
+            {/* Full Screen Modals */}
+            {!profile && (
+              <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm">
+                <Onboarding 
+                  userId={sessionUser.id} 
+                  onComplete={(newProfile) => {
+                    if (newProfile) {
+                      setProfile(newProfile);
+                      localStorage.setItem('ht_user_profile_cache', JSON.stringify(newProfile));
+                      if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
+                        setTimeout(() => setShowWhatsNew(true), 1500);
+                      }
+                    } else {
+                      fetchProfile(sessionUser.id);
+                    }
+                  }} 
+                />
               </div>
             )}
+
+            {isTracking && (
+              <div className="absolute inset-0 z-50 bg-slate-950">
+                <TrackingModal 
+                  onClose={() => setIsTracking(false)} 
+                  onSave={handleSaveSession}
+                />
+              </div>
+            )}
+
+            {showWhatsNew && (
+              <WhatsNewModal onClose={() => {
+                setShowWhatsNew(false);
+                localStorage.setItem('ht_whats_new_v2', 'seen');
+              }} />
+            )}
           </div>
-
-          {activeTab === 'dashboard' && <Dashboard sessions={sessions} onStartSession={() => setIsTracking(true)} />}
-           {activeTab === 'logs' && <Logs sessions={sessions} />}
-           {activeTab === 'settings' && (
-             <Settings 
-                profile={profile}
-                sessions={sessions}
-                onClearData={handleClearData} 
-                currentTheme={theme} 
-                onThemeChange={setTheme} 
-             />
-           )}
-        </main>
-
-        {/* Bottom Navigation */}
-        <nav className="absolute bottom-0 w-full bg-slate-950/80 backdrop-blur-xl border-t border-slate-800 p-4 pb-safe flex justify-around">
-          <button 
-            onClick={() => setActiveTab('dashboard')}
-            className={`flex flex-col items-center gap-1.5 p-2 transition-colors ${activeTab === 'dashboard' ? 'text-primary-400' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            <Home size={24} className={activeTab === 'dashboard' ? 'fill-primary-400/20' : ''} />
-            <span className="text-[10px] font-semibold">Home</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('logs')}
-            className={`flex flex-col items-center gap-1.5 p-2 transition-colors ${activeTab === 'logs' ? 'text-primary-400' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            <List size={24} className={activeTab === 'logs' ? 'fill-primary-400/20' : ''} />
-            <span className="text-[10px] font-semibold">Logs</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('settings')}
-            className={`flex flex-col items-center gap-1.5 p-2 transition-colors ${activeTab === 'settings' ? 'text-primary-400' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            <SettingsIcon size={24} className={activeTab === 'settings' ? 'fill-primary-400/20' : ''} />
-            <span className="text-[10px] font-semibold">Settings</span>
-          </button>
-        </nav>
-
-        {/* Full Screen Modals */}
-        {!profile && (
-          <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm">
-            <Onboarding 
-              userId={sessionUser.id} 
-              onComplete={(newProfile) => {
-                if (newProfile) {
-                  setProfile(newProfile);
-                  localStorage.setItem('ht_user_profile_cache', JSON.stringify(newProfile));
-                  if (localStorage.getItem('ht_whats_new_v2') !== 'seen') {
-                    setTimeout(() => setShowWhatsNew(true), 1500);
-                  }
-                } else {
-                  fetchProfile(sessionUser.id);
-                }
-              }} 
-            />
-          </div>
-        )}
-
-        {isTracking && (
-          <div className="absolute inset-0 z-50 bg-slate-950">
-            <TrackingModal 
-              onClose={() => setIsTracking(false)} 
-              onSave={handleSaveSession}
-            />
-          </div>
-        )}
-
-        {showWhatsNew && (
-          <WhatsNewModal onClose={() => {
-            setShowWhatsNew(false);
-            localStorage.setItem('ht_whats_new_v2', 'seen');
-          }} />
-        )}
-      </div>
+        } />
+      </Routes>
     </div>
   );
 }

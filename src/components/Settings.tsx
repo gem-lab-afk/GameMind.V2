@@ -2,20 +2,26 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Trash2, User, Bell, Shield, Check, Palette, Upload, Gamepad2, Layers } from 'lucide-react';
 import { Profile, Session } from '../types';
 import { supabase } from '../lib/supabase';
+import VirtualPet from './VirtualPet';
 
 interface SettingsProps {
   onClearData: () => Promise<void>;
   currentTheme: string;
   onThemeChange: (theme: string) => void;
+  onProfileUpdate: (updates: Partial<Profile>) => void;
   profile?: Profile | null;
   sessions: Session[];
 }
 
-export default function Settings({ onClearData, currentTheme, onThemeChange, profile, sessions }: SettingsProps) {
+export default function Settings({ onClearData, currentTheme, onThemeChange, onProfileUpdate, profile, sessions }: SettingsProps) {
   const [username, setUsername] = useState(() => profile?.username || localStorage.getItem('habit_tracker_username') || 'GamerTag_01');
   const [avatarUrl, setAvatarUrl] = useState(() => profile?.avatar_url || null);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [tempUsername, setTempUsername] = useState('');
+  
+  const averageControlScore = sessions.length > 0
+    ? sessions.reduce((sum, s) => sum + (s.control_score || 3), 0) / sessions.length
+    : 3;
   
   const AVAILABLE_PLATFORMS = ['PC', 'PlayStation', 'Xbox', 'Switch', 'Mobile', 'VR'];
   const AVAILABLE_GENRES = ['FPS', 'RPG', 'MMO', 'Strategy', 'Action', 'Adventure', 'Sports', 'Racing', 'Simulation', 'Puzzle'];
@@ -33,7 +39,33 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
 
   const [pushEnabled, setPushEnabled] = useState(() => localStorage.getItem('habit_tracker_push') === 'true');
   const [privacyEnabled, setPrivacyEnabled] = useState(() => localStorage.getItem('habit_tracker_privacy') === 'true');
+  const [leaderboardPublic, setLeaderboardPublic] = useState(() => profile?.is_public || false);
   
+  useEffect(() => {
+    if (profile) {
+      setLeaderboardPublic(profile.is_public || false);
+    }
+  }, [profile?.is_public, profile]);
+  
+  useEffect(() => {
+    if (profile && profile.is_public !== undefined) {
+      setLeaderboardPublic(profile.is_public);
+    }
+  }, [profile]);
+  
+  const handleTogglePublic = async () => {
+    const newValue = !leaderboardPublic;
+    setLeaderboardPublic(newValue);
+    if (profile && profile.id !== 'guest_user_12345') {
+      try {
+        onProfileUpdate({ is_public: newValue });
+        await supabase.from('profiles').update({ is_public: newValue }).eq('id', profile.id);
+      } catch (err) {
+        console.error('Failed to update public status', err);
+      }
+    }
+  };
+
   const [defaultGame, setDefaultGame] = useState(() => localStorage.getItem('habit_tracker_default_game') || '');
   const [defaultTime, setDefaultTime] = useState(() => localStorage.getItem('habit_tracker_default_time') || '60');
 
@@ -67,10 +99,14 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
   const handleEditSave = async () => {
     if (isEditingUsername) {
       if (tempUsername.trim() && profile && profile.id !== 'guest_user_12345') {
-        setUsername(tempUsername.trim());
-        await supabase.from('profiles').update({ username: tempUsername.trim() }).eq('id', profile.id);
+        const newUsername = tempUsername.trim();
+        setUsername(newUsername);
+        onProfileUpdate({ username: newUsername });
+        await supabase.from('profiles').update({ username: newUsername }).eq('id', profile.id);
       } else if (profile?.id === 'guest_user_12345' && tempUsername.trim()) {
-        setUsername(tempUsername.trim());
+        const newUsername = tempUsername.trim();
+        setUsername(newUsername);
+        onProfileUpdate({ username: newUsername });
       }
       setIsEditingUsername(false);
     } else {
@@ -83,15 +119,13 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
     if (isEditingProfileDetails) {
       if (profile && profile.id !== 'guest_user_12345') {
         // Save using legacy column names, but keep UI using arrays
+        onProfileUpdate({ platforms: tempPlatforms, genres: tempGenres });
         await supabase.from('profiles').update({ 
           platform: tempPlatforms.join(', '), 
           primary_genre: tempGenres.join(', ') 
         }).eq('id', profile.id);
-        profile.platforms = tempPlatforms;
-        profile.genres = tempGenres;
       } else if (profile && profile.id === 'guest_user_12345') {
-        profile.platforms = tempPlatforms;
-        profile.genres = tempGenres;
+        onProfileUpdate({ platforms: tempPlatforms, genres: tempGenres });
       }
       setIsEditingProfileDetails(false);
     } else {
@@ -125,6 +159,7 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
       if (data) {
         const url = data.publicUrl;
         setAvatarUrl(url);
+        onProfileUpdate({ avatar_url: url });
         await supabase.from('profiles').update({ avatar_url: url }).eq('id', profile.id);
       }
     } catch (error) {
@@ -155,7 +190,7 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-              <div className="w-16 h-16 bg-primary-600/20 rounded-full flex items-center justify-center border border-primary-500/30 overflow-hidden relative group">
+              <div className={`w-16 h-16 bg-primary-600/20 rounded-full flex items-center justify-center border-2 overflow-hidden relative group ${profile?.equipped_avatar_frame || 'border-primary-500/30'}`}>
                 {avatarUrl ? (
                   <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
@@ -177,9 +212,12 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
                     onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
                   />
                 ) : (
-                  <p className="font-medium text-slate-200 text-lg">{username}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-slate-200 text-lg">{username}</p>
+                    <VirtualPet averageControlScore={averageControlScore} size={20} />
+                  </div>
                 )}
-                <p className="text-xs text-slate-400 mt-0.5">{profile?.app_goal || 'Free Tier'}</p>
+                <p className="text-xs text-slate-400 mt-0.5 capitalize">{profile?.equipped_title || 'Novice'} • {profile?.app_goal || 'Free Tier'}</p>
               </div>
             </div>
             <button 
@@ -296,13 +334,13 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
           <div className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Shield className="text-slate-400" size={18} />
-              <span className="text-sm text-slate-300">Privacy Mode</span>
+              <span className="text-sm text-slate-300">Show on Public Leaderboard</span>
             </div>
             <button 
-              onClick={() => setPrivacyEnabled(!privacyEnabled)}
-              className={`w-11 h-6 rounded-full relative transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-slate-950 ${privacyEnabled ? 'bg-primary-600' : 'bg-slate-700'}`}
+              onClick={handleTogglePublic}
+              className={`w-11 h-6 rounded-full relative transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-slate-950 ${leaderboardPublic ? 'bg-primary-600' : 'bg-slate-700'}`}
             >
-              <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform duration-200 shadow-sm ${privacyEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform duration-200 shadow-sm ${leaderboardPublic ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </button>
           </div>
         </div>
@@ -310,12 +348,12 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, pro
         <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4 mt-6">Tracking Defaults</h2>
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">Default Game</label>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Default Session Name</label>
             <input 
               type="text" 
               value={defaultGame}
               onChange={(e) => setDefaultGame(e.target.value)}
-              placeholder="e.g. Valorant, League..."
+              placeholder="e.g. Ranked Grind, Chill Night"
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-primary-500"
             />
           </div>
