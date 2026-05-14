@@ -70,6 +70,8 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
     fetchLeaderboard();
   }, [profile]);
 
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+
   const fetchLeaderboard = async () => {
     if (!sessionUser?.id || sessionUser.id === 'guest_user_12345') {
       setLeaderboard([]);
@@ -91,6 +93,7 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
   const handleClaim = async (reward: RewardDef) => {
     if (!sessionUser?.id || sessionUser.id === 'guest_user_12345') return;
     setClaiming(reward.id);
+    setErrorToast(null);
     try {
       // Ensure we have a fresh copy of unlocked rewards
       const currentUnlocked = profile?.unlocked_rewards || [];
@@ -109,21 +112,33 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
       // Update parent state (optimistic)
       onProfileUpdate(updates);
 
+      // Identify through auth directly for security
+      const { data: authData } = await supabase.auth.getUser();
+      const authId = authData.user?.id;
+      if (!authId) throw new Error("Not authenticated");
+
       // Persist to database
       const { error } = await supabase
         .from('profiles')
-        .update(updates)
-        .eq('id', sessionUser.id);
+        .update({
+          unlocked_rewards: newUnlocked,
+          equipped_avatar_frame: updates.equipped_avatar_frame || undefined,
+          equipped_title: updates.equipped_title || undefined
+        })
+        .eq('id', authId);
       
       if (error) {
-        console.error('Failed to claim reward in cloud:', error);
-        alert('Cloud sync failed. Your reward might not be saved.');
+        console.error(`Failed to claim reward in cloud [Error Code: ${error.code}]:`, error.message, error.details);
+        setErrorToast(`Cloud sync failed: [${error.code}] ${error.message}`);
+        setTimeout(() => setErrorToast(null), 5000);
       } else {
         console.log('Reward successfully claimed and saved.');
       }
       
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error claiming reward:', err);
+      setErrorToast(err.message || 'Error claiming reward');
+      setTimeout(() => setErrorToast(null), 5000);
     } finally {
       setClaiming(null);
     }
@@ -139,6 +154,15 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 text-slate-100 flex flex-col md:flex-row overflow-hidden">
+      {errorToast && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[200] max-w-sm w-full px-4 animate-in fade-in slide-in-from-top-10">
+          <div className="bg-slate-900/90 backdrop-blur-md border border-rose-500/50 rounded-xl shadow-[0_0_20px_rgba(244,63,94,0.15)] p-4 flex items-start justify-between gap-3">
+            <p className="text-xs text-rose-200 font-mono tracking-tight">{errorToast}</p>
+            <button onClick={() => setErrorToast(null)} className="text-slate-500 hover:text-white p-1 -mt-1 -mr-1">✕</button>
+          </div>
+        </div>
+      )}
+      
       {/* Mobile Top Bar */}
       <div className="md:hidden flex flex-col p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md gap-4">
         {/* Mobile Tab Switcher */}

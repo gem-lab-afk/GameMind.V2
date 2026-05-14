@@ -146,12 +146,13 @@ export default function App() {
       }
 
       // We don't set isInitializing(true) here anymore to prevent kicking user out of UI
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle(); 
+      const { data, error } = await supabase.from('profiles').select('*, unlocked_rewards, level').eq('id', userId).maybeSingle(); 
       if (error) throw error;
 
       if (data) {
         const processedProfile: Profile = {
           ...data,
+          level: data.level || 1,
           platforms: data.platforms || (data.platform ? data.platform.split(', ') : []),
           genres: data.genres || (data.primary_genre ? data.primary_genre.split(', ') : []),
           unlocked_rewards: Array.isArray(data.unlocked_rewards) ? data.unlocked_rewards : []

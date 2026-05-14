@@ -11,7 +11,7 @@ export interface Profile {
   equipped_avatar_frame?: string;
   equipped_title?: string;
   unlocked_rewards?: string[];
-  is_public?: boolean;
+  is_leaderboard_on?: boolean;
 }
 
 export interface Session {

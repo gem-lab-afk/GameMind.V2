@@ -39,17 +39,17 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
 
   const [pushEnabled, setPushEnabled] = useState(() => localStorage.getItem('habit_tracker_push') === 'true');
   const [privacyEnabled, setPrivacyEnabled] = useState(() => localStorage.getItem('habit_tracker_privacy') === 'true');
-  const [leaderboardPublic, setLeaderboardPublic] = useState(() => profile?.is_public || false);
+  const [leaderboardPublic, setLeaderboardPublic] = useState(() => profile?.is_leaderboard_on || false);
   
   useEffect(() => {
     if (profile) {
-      setLeaderboardPublic(profile.is_public || false);
+      setLeaderboardPublic(profile.is_leaderboard_on || false);
     }
-  }, [profile?.is_public, profile]);
+  }, [profile?.is_leaderboard_on, profile]);
   
   useEffect(() => {
-    if (profile && profile.is_public !== undefined) {
-      setLeaderboardPublic(profile.is_public);
+    if (profile && profile.is_leaderboard_on !== undefined) {
+      setLeaderboardPublic(profile.is_leaderboard_on);
     }
   }, [profile]);
   
@@ -58,8 +58,8 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
     setLeaderboardPublic(newValue);
     if (profile && profile.id !== 'guest_user_12345') {
       try {
-        onProfileUpdate({ is_public: newValue });
-        await supabase.from('profiles').update({ is_public: newValue }).eq('id', profile.id);
+        onProfileUpdate({ is_leaderboard_on: newValue });
+        await supabase.from('profiles').update({ is_leaderboard_on: newValue }).eq('id', profile.id);
       } catch (err) {
         console.error('Failed to update public status', err);
       }
