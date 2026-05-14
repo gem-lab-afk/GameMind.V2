@@ -19,8 +19,10 @@ ON profiles
 FOR SELECT 
 USING (is_leaderboard_on = true);
 
--- Task 2: Ensure unlocked_rewards exists
+-- Task 2: Ensure unlocked_rewards and equipped columns exist
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS unlocked_rewards text[] DEFAULT '{}';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS equipped_avatar_frame text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS equipped_title text;
 
 -- Create update policy
 CREATE POLICY "Users can update own rewards" 
