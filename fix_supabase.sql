@@ -1,50 +1,17 @@
--- Task 1: Add is_leaderboard_on
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_leaderboard_on boolean DEFAULT false;
+-- STEP 1: DROP the existing function to avoid "cannot change return type" error
+DROP FUNCTION IF EXISTS get_leaderboard(uuid);
 
--- Migrate any existing is_public data if present (optional but safe)
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'is_public') THEN
-    UPDATE profiles SET is_leaderboard_on = is_public;
-  END IF;
-END $$;
-
--- Drop existing overlapping policies to prevent issues
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON profiles;
-DROP POLICY IF EXISTS "Users can update own rewards" ON profiles;
-
--- Create public select policy
-CREATE POLICY "Public profiles are viewable by everyone" 
-ON profiles 
-FOR SELECT 
-USING (is_leaderboard_on = true);
-
--- Task 2: Ensure unlocked_rewards and equipped columns exist
+-- STEP 2: Add missing columns to the PROFILES table
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS unlocked_rewards text[] DEFAULT '{}';
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS equipped_avatar_frame text;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS equipped_title text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_leaderboard_on boolean DEFAULT false;
 
--- Task 3: Ensure sessions table has required columns for TrackingModal
+-- STEP 3: Add missing columns to the SESSIONS table (to prevent TrackingModal errors)
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_name text;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS games_played text[] DEFAULT '{}';
 
-DO $$
-BEGIN
-  IF EXISTS(SELECT * FROM information_schema.columns WHERE table_name='sessions' and column_name='game_name') THEN
-    UPDATE sessions SET session_name = game_name WHERE session_name IS NULL;
-  END IF;
-END $$;
-
-
--- Create update policy
-CREATE POLICY "Users can update own rewards" 
-ON profiles 
-FOR UPDATE 
-TO authenticated
-USING (auth.uid() = id) 
-WITH CHECK (auth.uid() = id);
-
--- RPC Refactor: Leaderboard Security Definer
+-- STEP 4: Create the corrected Leaderboard function
 CREATE OR REPLACE FUNCTION get_leaderboard(req_user_id uuid)
 RETURNS TABLE (
   rank bigint,
@@ -92,3 +59,6 @@ AS $$
   WHERE (rank <= 50 AND is_leaderboard_on = true) OR id = req_user_id
   ORDER BY rank ASC;
 $$;
+
+-- STEP 5: Reload Schema Cache (CRITICAL)
+NOTIFY pgrst, 'reload schema';

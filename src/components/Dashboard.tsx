@@ -195,7 +195,12 @@ export default function Dashboard({ sessions, onStartSession, profile }: Dashboa
             </div>
             <div>
               <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Player Level</p>
-              <p className="text-xl font-bold text-white leading-none">{xpData.level}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xl font-bold text-white leading-none">{xpData.level}</p>
+                <span className="text-[10px] bg-primary-500/20 text-primary-300 px-2 py-0.5 rounded-md border border-primary-500/30 font-semibold shadow-sm group-hover:bg-primary-500 group-hover:text-white transition-colors duration-300">
+                  VIEW LEADERBOARD & REWARDS →
+                </span>
+              </div>
             </div>
           </div>
           <div className="text-right">

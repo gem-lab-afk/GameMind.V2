@@ -79,12 +79,52 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
       return;
     }
     
+    setLoading(true);
     try {
       const { data, error } = await supabase.rpc('get_leaderboard', { req_user_id: sessionUser.id });
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST202') {
+          console.warn("RPC get_leaderboard not found, falling back to standard query...");
+          // Fallback to fetch top 50
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('profiles')
+            .select('id, username, avatar_url, level, current_xp, equipped_title, equipped_avatar_frame')
+            .order('current_xp', { ascending: false })
+            .limit(50);
+            
+          if (fallbackError) throw fallbackError;
+          
+          let leaderboardRows = (fallbackData || []).map((row: any, idx: number) => ({
+            ...row,
+            rank: idx + 1,
+            average_control_score: 0
+          }));
+
+          // check if current user is in it
+          const isUserInTop50 = leaderboardRows.some(r => r.id === sessionUser.id);
+          if (!isUserInTop50 && profile) {
+            leaderboardRows.push({
+              id: profile.id,
+              username: profile.username || 'You',
+              avatar_url: profile.avatar_url,
+              level: profile.level || 1,
+              current_xp: profile.current_xp || 0,
+              equipped_title: profile.equipped_title,
+              equipped_avatar_frame: profile.equipped_avatar_frame,
+              average_control_score: 0,
+              rank: 999 // placeholder rank
+            });
+          }
+          
+          setLeaderboard(leaderboardRows);
+          return;
+        }
+        throw error;
+      }
       setLeaderboard(data || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching leaderboard:', err);
+      setErrorToast(`Leaderboard sync failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -118,7 +158,7 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
       if (!authId) throw new Error("Not authenticated");
 
       // Persist to database
-      const { error } = await supabase
+      let { error } = await supabase
         .from('profiles')
         .update({
           unlocked_rewards: newUnlocked,
@@ -126,6 +166,24 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
           equipped_title: updates.equipped_title || undefined
         })
         .eq('id', authId);
+        
+      if (error && error.code === 'PGRST204') {
+        console.warn('Schema cache stale for profile rewards. Retrying without equipped columns...');
+        const retryResult = await supabase
+          .from('profiles')
+          .update({
+            unlocked_rewards: newUnlocked
+          })
+          .eq('id', authId);
+          
+        error = retryResult.error;
+        
+        if (error && error.code === 'PGRST204') {
+             // Change throw to a toast instead of breaking the whole UI
+             setErrorToast("Database missing 'unlocked_rewards' column. Run the SQL fix in Subabase Editor to enable persistence.");
+             return;
+        }
+      }
       
       if (error) {
         console.error(`Failed to claim reward in cloud [Error Code: ${error.code}]:`, error.message, error.details);
@@ -155,7 +213,7 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 text-slate-100 flex flex-col md:flex-row overflow-hidden">
       {errorToast && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[200] max-w-sm w-full px-4 animate-in fade-in slide-in-from-top-10">
+        <div className="absolute top-16 md:top-6 left-1/2 -translate-x-1/2 z-[200] max-w-sm w-full px-4 animate-in fade-in slide-in-from-top-10">
           <div className="bg-slate-900/90 backdrop-blur-md border border-rose-500/50 rounded-xl shadow-[0_0_20px_rgba(244,63,94,0.15)] p-4 flex items-start justify-between gap-3">
             <p className="text-xs text-rose-200 font-mono tracking-tight">{errorToast}</p>
             <button onClick={() => setErrorToast(null)} className="text-slate-500 hover:text-white p-1 -mt-1 -mr-1">✕</button>
@@ -164,31 +222,47 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
       )}
       
       {/* Mobile Top Bar */}
-      <div className="md:hidden flex flex-col p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md gap-4">
+      <div className="md:hidden flex flex-col border-b border-slate-800 bg-slate-900/50 backdrop-blur-md z-40 relative">
+        <div className="flex items-center justify-between p-4 pb-2 border-b border-slate-800/50">
+          <button 
+             onClick={goHome} 
+             className="p-2 text-slate-400 hover:text-white rounded-full bg-slate-800 transition active:scale-95 shadow-lg border border-white/5 cursor-pointer flex items-center justify-center shrink-0"
+             aria-label="Go back to dashboard"
+           >
+             <ArrowLeft size={24} />
+           </button>
+           <h1 className="text-sm font-bold text-slate-300 uppercase tracking-widest shrink-0 ml-2">
+             Profile Progression
+           </h1>
+           <div className="flex-1"></div>
+        </div>
         {/* Mobile Tab Switcher */}
-        <div className="flex bg-slate-800/50 p-1 rounded-xl border border-white/5">
-          <button 
-            onClick={() => setActiveTab('leaderboard')}
-            className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all ${activeTab === 'leaderboard' ? 'bg-primary-500 text-white shadow-lg' : 'text-slate-400'}`}
-          >
-            Leaderboard
-          </button>
-          <button 
-            onClick={() => setActiveTab('path')}
-            className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all ${activeTab === 'path' ? 'bg-primary-500 text-white shadow-lg' : 'text-slate-400'}`}
-          >
-            My Path
-          </button>
+        <div className="p-4 pt-2">
+          <div className="flex bg-slate-800/50 p-1 rounded-xl border border-white/5">
+            <button 
+              onClick={() => setActiveTab('leaderboard')}
+              className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-widest rounded-lg transition-all ${activeTab === 'leaderboard' ? 'bg-primary-500 text-white shadow-lg' : 'text-slate-400'}`}
+            >
+              Leaderboard
+            </button>
+            <button 
+              onClick={() => setActiveTab('path')}
+              className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-widest rounded-lg transition-all ${activeTab === 'path' ? 'bg-primary-500 text-white shadow-lg' : 'text-slate-400'}`}
+            >
+              My Path
+            </button>
+          </div>
         </div>
       </div>
       
       {/* Side-by-side Layout for Desktop, Tabs for Mobile */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        {/* Global Back Button (Top Left) */}
-        <div className="absolute left-4 top-4 z-50 pointer-events-none md:pointer-events-auto">
+        {/* Global Back Button (Top Left) - DESKTOP ONLY */}
+        <div className="absolute left-4 top-4 z-50 hidden md:block">
           <button 
             onClick={goHome} 
-            className="p-2 text-slate-400 hover:text-white rounded-full bg-slate-800 transition active:scale-95 pointer-events-auto shadow-lg border border-white/5"
+            className="p-2 text-slate-400 hover:text-white rounded-full bg-slate-800 transition active:scale-95 shadow-lg border border-white/5 cursor-pointer"
+            aria-label="Go back to dashboard"
           >
             <ArrowLeft size={24} />
           </button>
@@ -291,7 +365,7 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
       <div className={`flex-1 overflow-y-auto p-4 md:p-8 md:pt-16 bg-slate-900/30 relative ${activeTab === 'path' ? 'block' : 'hidden md:block'}`}>
          <div className="flex flex-col mb-8 mt-12 md:mt-0 items-center md:items-start">
             <h2 className="text-2xl md:text-3xl font-bold text-slate-100 uppercase tracking-widest">
-              Progression Path
+              My Path
             </h2>
             <p className="text-[10px] text-slate-500 font-mono tracking-tighter mt-1">CLAIM YOUR EXCLUSIVE COSMETICS</p>
          </div>

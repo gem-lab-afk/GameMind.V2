@@ -42,51 +42,26 @@ export default function App() {
   useEffect(() => {
     let authChecked = false;
 
-    const boot = async () => {
-      // Safety timeout for boot: 3s
-      const bootTimeout = setTimeout(() => {
-        if (isMounted.current && isInitializing) setIsInitializing(false);
-      }, 3000);
+    // Safety timeout for initialize state
+    const bootTimeout = setTimeout(() => {
+      if (isMounted.current && isInitializing) setIsInitializing(false);
+    }, 5000);
 
-      try {
-        // Optimistic Load: check local storage first
-        const cachedProfile = localStorage.getItem('ht_user_profile_cache');
-        if (cachedProfile) {
-          try {
-             setProfile(JSON.parse(cachedProfile));
-          } catch (e) {}
-        }
-
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (!isMounted.current) return;
-        
-        if (session?.user) {
-          setSessionUser(session.user);
-          // fetchProfile will clear isInitializing
-          await fetchProfile(session.user.id);
-        } else {
-          if (localStorage.getItem('ht_is_guest') === 'true') {
-            handleGuestLogin();
-          } else {
-            setIsInitializing(false);
-          }
-        }
-      } catch (e) {
-        if (isMounted.current) setIsInitializing(false);
-      } finally {
-        clearTimeout(bootTimeout);
-        authChecked = true;
+    // Optimistic Load: check local storage first
+    try {
+      const cachedProfile = localStorage.getItem('ht_user_profile_cache');
+      if (cachedProfile) {
+        setProfile(JSON.parse(cachedProfile));
       }
-    };
-
-    boot();
+    } catch (e) {}
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted.current) return;
       
       if (session?.user) {
         setSessionUser(session.user);
-        if (event === 'SIGNED_IN' || !authChecked) {
+        if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || !authChecked) {
+          authChecked = true;
           fetchProfile(session.user.id);
         }
         if (event === 'SIGNED_IN') {
@@ -101,10 +76,24 @@ export default function App() {
         setProfile(null);
         setSessions([]);
         setIsInitializing(false);
+      } else {
+        // No session
+        if (event === 'INITIAL_SESSION') {
+          if (localStorage.getItem('ht_is_guest') === 'true') {
+            handleGuestLogin();
+          } else {
+            setIsInitializing(false);
+          }
+        }
+      }
+      
+      if (event === 'INITIAL_SESSION') {
+        clearTimeout(bootTimeout);
       }
     });
 
     return () => {
+      clearTimeout(bootTimeout);
       subscription.unsubscribe();
     };
   }, []);
@@ -146,7 +135,15 @@ export default function App() {
       }
 
       // We don't set isInitializing(true) here anymore to prevent kicking user out of UI
-      const { data, error } = await supabase.from('profiles').select('*, unlocked_rewards, level').eq('id', userId).maybeSingle(); 
+      let { data, error } = await supabase.from('profiles').select('*, unlocked_rewards, level').eq('id', userId).maybeSingle(); 
+      
+      if (error && error.code === 'PGRST204') {
+        console.warn('Profile schema stale. Retrying without new columns...');
+        const retryResult = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+        data = retryResult.data;
+        error = retryResult.error;
+      }
+      
       if (error) throw error;
 
       if (data) {
@@ -209,7 +206,7 @@ export default function App() {
   }, [profile?.id, sessions.length]);
   // Sessions fetching & REAL-TIME
   useEffect(() => {
-    if (sessionUser && profile) {
+    if (sessionUser?.id && profile?.id) {
       fetchSessions(sessionUser.id);
       
       const channel = supabase.channel('realtime sessions')
@@ -226,7 +223,7 @@ export default function App() {
         supabase.removeChannel(channel);
       }
     }
-  }, [sessionUser, profile]);
+  }, [sessionUser?.id, profile?.id]);
 
 
   const fetchSessions = async (userId: string) => {
@@ -286,38 +283,65 @@ export default function App() {
     setSessions(prev => [newSessionWithUserId, ...prev]);
     setIsTracking(false);
     
-    setToastMsg('Session Tracking Saved!');
-    setTimeout(() => setToastMsg(''), 3000);
+    setToastMsg('Saving Session...');
 
     // Don't save to DB for guest user
-    if (sessionUser.id === 'guest_user_12345') return;
+    if (sessionUser.id === 'guest_user_12345') {
+      setTimeout(() => setToastMsg('Session Tracking Saved!'), 500);
+      setTimeout(() => setToastMsg(''), 3500);
+      return;
+    }
 
     try {
-      const { error } = await supabase
+      // Pass game_name as well for backwards compatibility with un-migrated databases
+      const payload: any = { ...newSessionWithUserId, game_name: newSessionWithUserId.session_name };
+      let { error } = await supabase
         .from('sessions')
-        .insert([newSessionWithUserId]);
+        .insert([payload]);
+
+      // Fallback for stale schema cache
+      if (error && error.code === 'PGRST204') {
+        console.warn('Schema cache stale. Retrying without new columns...');
+        const { session_name, games_played, ...legacyPayload } = payload;
+        const result = await supabase.from('sessions').insert([legacyPayload]);
+        error = result.error;
+      }
 
       if (error) {
         console.error('Error saving session to Supabase:', error);
-        setToastMsg('Cloud sync failed.');
+        setToastMsg(`Cloud sync failed: ${error.message || error.code}`);
+        setTimeout(() => setToastMsg(''), 5000);
+        // Revert optimistic UI
+        setSessions(prev => prev.filter(s => s.id !== newSessionWithUserId.id));
       } else {
         console.log('Session successfully saved to Supabase');
+        setToastMsg('Session Tracking Saved!');
+        setTimeout(() => setToastMsg(''), 3000);
         
         // Update XP & Level in profile
         if (profile) {
           const sessionsWithNew = [newSessionWithUserId, ...sessions];
           const { totalXp, level: newLevel } = calculateProgression(sessionsWithNew);
           
-          await supabase.from('profiles').update({
+          const { error: profileError } = await supabase.from('profiles').update({
             current_xp: totalXp,
             level: newLevel
           }).eq('id', profile.id);
           
+          if (profileError) {
+             if (profileError.code === 'PGRST204') {
+               console.warn('Profile XP sync skipped: database schema needs update (run migration SQL).');
+             } else {
+               console.error('Failed to sync new XP/Level to profile', profileError);
+             }
+          }
           setProfile({ ...profile, current_xp: totalXp, level: newLevel });
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Unexpected error saving session:', err);
+      setToastMsg(`Unexpected error: ${err.message}`);
+      setTimeout(() => setToastMsg(''), 5000);
     }
   };
 

@@ -59,7 +59,14 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
     if (profile && profile.id !== 'guest_user_12345') {
       try {
         onProfileUpdate({ is_leaderboard_on: newValue });
-        await supabase.from('profiles').update({ is_leaderboard_on: newValue }).eq('id', profile.id);
+        const { error } = await supabase.from('profiles').update({ is_leaderboard_on: newValue }).eq('id', profile.id);
+        if (error) {
+          if (error.code === 'PGRST204') {
+             console.warn("is_leaderboard_on column may be missing. Run the migration script.");
+          } else {
+             throw error;
+          }
+        }
       } catch (err) {
         console.error('Failed to update public status', err);
       }
@@ -102,7 +109,8 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
         const newUsername = tempUsername.trim();
         setUsername(newUsername);
         onProfileUpdate({ username: newUsername });
-        await supabase.from('profiles').update({ username: newUsername }).eq('id', profile.id);
+        const { error } = await supabase.from('profiles').update({ username: newUsername }).eq('id', profile.id);
+        if (error) console.error("Failed to update username:", error);
       } else if (profile?.id === 'guest_user_12345' && tempUsername.trim()) {
         const newUsername = tempUsername.trim();
         setUsername(newUsername);
@@ -120,10 +128,11 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
       if (profile && profile.id !== 'guest_user_12345') {
         // Save using legacy column names, but keep UI using arrays
         onProfileUpdate({ platforms: tempPlatforms, genres: tempGenres });
-        await supabase.from('profiles').update({ 
+        const { error } = await supabase.from('profiles').update({ 
           platform: tempPlatforms.join(', '), 
           primary_genre: tempGenres.join(', ') 
         }).eq('id', profile.id);
+        if (error) console.error("Failed to update profile details:", error);
       } else if (profile && profile.id === 'guest_user_12345') {
         onProfileUpdate({ platforms: tempPlatforms, genres: tempGenres });
       }
@@ -160,7 +169,8 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
         const url = data.publicUrl;
         setAvatarUrl(url);
         onProfileUpdate({ avatar_url: url });
-        await supabase.from('profiles').update({ avatar_url: url }).eq('id', profile.id);
+        const { error } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', profile.id);
+        if (error) console.error('Failed to update avatar in DB:', error);
       }
     } catch (error) {
       console.error('Error uploading avatar:', error);
