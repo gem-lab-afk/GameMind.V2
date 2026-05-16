@@ -209,7 +209,7 @@ export default function App() {
     if (sessionUser?.id && profile?.id) {
       fetchSessions(sessionUser.id);
       
-      const channel = supabase.channel('realtime sessions')
+      const channelSessions = supabase.channel('realtime sessions')
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'sessions', filter: `user_id=eq.${String(sessionUser.id)}` },
@@ -218,9 +218,21 @@ export default function App() {
           }
         )
         .subscribe();
+
+      const channelProfiles = supabase.channel('realtime profiles')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${String(sessionUser.id)}` },
+          (payload) => {
+            fetchProfileLock.current = null; // Clear lock so it can fetch
+            fetchProfile(sessionUser.id);
+          }
+        )
+        .subscribe();
         
       return () => {
-        supabase.removeChannel(channel);
+        supabase.removeChannel(channelSessions);
+        supabase.removeChannel(channelProfiles);
       }
     }
   }, [sessionUser?.id, profile?.id]);
