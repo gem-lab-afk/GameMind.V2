@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trash2, User, Bell, Shield, Check, Palette, Upload, Gamepad2, Layers } from 'lucide-react';
+import { Trash2, User, Bell, Shield, Check, Palette, Upload, Gamepad2, Layers, Medal } from 'lucide-react';
 import { Profile, Session } from '../types';
 import { supabase } from '../lib/supabase';
 import VirtualPet from './VirtualPet';
+import { REWARDS_MAP } from '../constants';
 
 interface SettingsProps {
   onClearData: () => Promise<void>;
@@ -123,18 +124,42 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
     }
   };
 
+  const handleEquipTitle = async (titleValue: string) => {
+    if (profile && profile.id !== 'guest_user_12345') {
+      onProfileUpdate({ equipped_title: titleValue });
+      const { error } = await supabase.from('profiles').update({ equipped_title: titleValue }).eq('id', profile.id);
+      if (error) console.error("Failed to update title:", error);
+    } else if (profile && profile.id === 'guest_user_12345') {
+      onProfileUpdate({ equipped_title: titleValue });
+    }
+  };
+
   const handleProfileDetailsSave = async () => {
     if (isEditingProfileDetails) {
       if (profile && profile.id !== 'guest_user_12345') {
-        // Save using legacy column names, but keep UI using arrays
-        onProfileUpdate({ platforms: tempPlatforms, genres: tempGenres });
-        const { error } = await supabase.from('profiles').update({ 
+        const resetGoal = profile.app_goal === 'Skipped Onboarding';
+        const updates: any = { 
           platform: tempPlatforms.join(', '), 
-          primary_genre: tempGenres.join(', ') 
-        }).eq('id', profile.id);
+          primary_genre: tempGenres.join(', '),
+          platforms: tempPlatforms,
+          genres: tempGenres
+        };
+        const localUpdates: any = { platforms: tempPlatforms, genres: tempGenres };
+        
+        if (resetGoal) {
+          updates.app_goal = 'Player';
+          localUpdates.app_goal = 'Player';
+        }
+
+        onProfileUpdate(localUpdates);
+        const { error } = await supabase.from('profiles').update(updates).eq('id', profile.id);
         if (error) console.error("Failed to update profile details:", error);
       } else if (profile && profile.id === 'guest_user_12345') {
-        onProfileUpdate({ platforms: tempPlatforms, genres: tempGenres });
+        const localUpdates: any = { platforms: tempPlatforms, genres: tempGenres };
+        if (profile.app_goal === 'Skipped Onboarding') {
+          localUpdates.app_goal = 'Player';
+        }
+        onProfileUpdate(localUpdates);
       }
       setIsEditingProfileDetails(false);
     } else {
@@ -294,6 +319,57 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
                        <span key={g} className="px-2 py-0.5 bg-primary-900/30 text-primary-400 border border-primary-500/20 rounded-md text-[10px] uppercase font-bold">{g}</span>
                      )) : <span className="text-xs text-slate-600">None selected</span>
                    )}
+                 </div>
+               </div>
+               
+               {/* Title Selection */}
+               <div className="flex-1 w-full border-t border-slate-800 pt-4 mt-2">
+                 <div className="flex items-center gap-2 mb-2">
+                    <Medal size={14} className="text-slate-500" />
+                    <span className="text-xs text-slate-400 uppercase tracking-widest">Equipped Title & Frame</span>
+                 </div>
+                 <div className="grid grid-cols-2 gap-2">
+                   <select 
+                     value={profile?.equipped_title || ''} 
+                     onChange={(e) => handleEquipTitle(e.target.value)}
+                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-primary-500"
+                   >
+                     <option value="">Novice (Default Title)</option>
+                     {profile?.unlocked_rewards?.map(rewardId => {
+                       const reward = REWARDS_MAP.find(r => r.id === rewardId && r.type === 'title');
+                       if (!reward) return null;
+                       return (
+                         <option key={reward.id} value={reward.value}>
+                           {reward.title}
+                         </option>
+                       );
+                     })}
+                   </select>
+
+                   <select 
+                     value={profile?.equipped_avatar_frame || ''} 
+                     onChange={(e) => {
+                       const newFrame = e.target.value;
+                       if (profile && profile.id !== 'guest_user_12345') {
+                         onProfileUpdate({ equipped_avatar_frame: newFrame });
+                         supabase.from('profiles').update({ equipped_avatar_frame: newFrame }).eq('id', profile.id);
+                       } else if (profile && profile.id === 'guest_user_12345') {
+                         onProfileUpdate({ equipped_avatar_frame: newFrame });
+                       }
+                     }}
+                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-primary-500"
+                   >
+                     <option value="">Default Frame</option>
+                     {profile?.unlocked_rewards?.map(rewardId => {
+                       const reward = REWARDS_MAP.find(r => r.id === rewardId && r.type === 'frame');
+                       if (!reward) return null;
+                       return (
+                         <option key={reward.id} value={reward.value}>
+                           {reward.title}
+                         </option>
+                       );
+                     })}
+                   </select>
                  </div>
                </div>
             </div>

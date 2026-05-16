@@ -150,8 +150,8 @@ export default function App() {
         const processedProfile: Profile = {
           ...data,
           level: data.level || 1,
-          platforms: data.platforms || (data.platform ? data.platform.split(', ') : []),
-          genres: data.genres || (data.primary_genre ? data.primary_genre.split(', ') : []),
+          platforms: data.platforms || (data.platform ? data.platform.split(', ').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None defined') : []),
+          genres: data.genres || (data.primary_genre ? data.primary_genre.split(', ').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None defined') : []),
           unlocked_rewards: Array.isArray(data.unlocked_rewards) ? data.unlocked_rewards : []
         };
         setProfile(processedProfile);
@@ -170,7 +170,30 @@ export default function App() {
         if (!localStorage.getItem('ht_onboarded_v2')) {
           setProfile(null);
         } else {
-          console.log('Profile fetch returned null, but user is marked as onboarded. Keeping current profile.');
+          console.log('Profile fetch returned null, but user is marked as onboarded. Constructing fallback.');
+          const fallbackProfile: Profile = {
+            id: userId,
+            username: 'Gamer',
+            platform: 'None defined',
+            primary_genre: 'None defined',
+            app_goal: 'Player',
+            platforms: [],
+            genres: [],
+            level: 1,
+            current_xp: 0,
+            unlocked_rewards: []
+          };
+          setProfile(fallbackProfile);
+          // Try to sync it to DB again just in case previous skip failed
+          supabase.from('profiles').upsert([{ 
+             id: userId, 
+             username: 'Gamer', 
+             platform: 'None defined', 
+             primary_genre: 'None defined', 
+             app_goal: 'Player',
+             level: 1,
+             current_xp: 0
+          }], { onConflict: 'id' }).then();
         }
       }
     } catch (err: any) {

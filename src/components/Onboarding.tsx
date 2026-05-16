@@ -24,7 +24,9 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       username: 'Gamer',
       platform: 'None defined',
       primary_genre: 'None defined',
-      app_goal: 'Skipped Onboarding',
+      platforms: [],
+      genres: [],
+      app_goal: 'Player',
       unlocked_rewards: []
     };
 
@@ -69,6 +71,8 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
         username: username || 'Guest',
         platform: platforms.join(', '),
         primary_genre: genres.join(', '),
+        platforms: platforms,
+        genres: genres,
         app_goal: goal,
         unlocked_rewards: []
       };
