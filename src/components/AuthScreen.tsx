@@ -35,9 +35,12 @@ export default function AuthScreen({ onGuestLogin }: AuthScreenProps) {
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList' || mutation.type === 'characterData') {
           const messageEls = document.querySelectorAll('.supabase-message');
-          messageEls.forEach((el) => {
+          messageEls.forEach((el: any) => {
             if (el.textContent?.includes('Invalid login credentials')) {
               el.textContent = 'Incorrect email or password. Please try again.';
+            }
+            if (el.textContent?.includes('Invalid Refresh Token') || el.textContent?.includes('Refresh Token Not Found')) {
+              el.style.display = 'none';
             }
           });
         }

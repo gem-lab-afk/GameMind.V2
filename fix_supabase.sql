@@ -6,6 +6,8 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS unlocked_rewards text[] DEFAULT '{
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS equipped_avatar_frame text;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS equipped_title text;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_leaderboard_on boolean DEFAULT false;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS level integer DEFAULT 1;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS current_xp integer DEFAULT 0;
 
 -- STEP 3: Add missing columns to the SESSIONS table (to prevent TrackingModal errors)
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_name text;
