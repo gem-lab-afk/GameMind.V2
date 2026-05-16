@@ -12,7 +12,10 @@ const getSessionIdentifier = (s: Session) => {
   if (s.games_played && s.games_played.length > 0) {
     return s.games_played.join(', ');
   }
-  return s.session_name;
+  if ((s as any).tags && (s as any).tags.length > 0) {
+    return (s as any).tags.join(', ');
+  }
+  return s.session_name || (s as any).game_name || 'Unnamed Session';
 };
 
 interface DashboardProps {
