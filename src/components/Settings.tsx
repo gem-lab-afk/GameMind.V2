@@ -223,7 +223,7 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
       <section>
         <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">Account</h2>
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between relative z-50">
             <div className="flex items-center gap-4 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
               <div className={`w-16 h-16 bg-primary-600/20 rounded-full flex items-center justify-center border-2 overflow-hidden relative group ${profile?.equipped_avatar_frame || 'border-primary-500/30'}`}>
                 {avatarUrl ? (
@@ -249,7 +249,7 @@ export default function Settings({ onClearData, currentTheme, onThemeChange, onP
                 ) : (
                   <div className="flex items-center gap-2">
                     <p className="font-medium text-slate-200 text-lg">{username}</p>
-                    <VirtualPet averageControlScore={averageControlScore} size={20} />
+                    <VirtualPet averageControlScore={averageControlScore} size={32} />
                   </div>
                 )}
                 <p className="text-xs text-slate-400 mt-0.5 capitalize">{profile?.equipped_title || 'Novice'} • {profile?.app_goal || 'Free Tier'}</p>

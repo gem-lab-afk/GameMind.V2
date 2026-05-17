@@ -3,19 +3,19 @@ import { ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, C
 import { Play, Gamepad2, TrendingUp, Clock, Target, Star, Trophy } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Session, Profile } from '../types';
-import { formatTime, safeParseJSON } from '../utils';
+import { formatTime } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { calculateProgression } from '../lib/progressionUtils';
-import VirtualPet from './VirtualPet';
+import VirtualPet, { getSpiritName } from './VirtualPet';
 
 const getSessionIdentifier = (s: Session) => {
   if (s.games_played && s.games_played.length > 0) {
     return s.games_played.join(', ');
   }
-  if (s.tags && s.tags.length > 0) {
-    return s.tags.join(', ');
+  if ((s as any).tags && (s as any).tags.length > 0) {
+    return (s as any).tags.join(', ');
   }
-  return s.session_name || s.game_name || 'Unnamed Session';
+  return s.session_name || (s as any).game_name || 'Unnamed Session';
 };
 
 interface DashboardProps {
@@ -77,39 +77,41 @@ export default function Dashboard({ sessions, onStartSession, profile }: Dashboa
   const [showStreakToast, setShowStreakToast] = React.useState<number | null>(null);
   const [dailyQuote, setDailyQuote] = React.useState(0);
 
+  const currentStreak = useMemo(() => {
+    if (sessions.length === 0) return 0;
+    const dates = sessions.map(s => new Date(s.created_at).toDateString());
+    const uniqueDates = Array.from(new Set(dates));
+    
+    let streak = 0;
+    let checkDate = new Date();
+    // Start checking from today or yesterday
+    if (!uniqueDates.includes(checkDate.toDateString())) {
+      checkDate.setDate(checkDate.getDate() - 1); // Check yesterday
+    }
+    
+    while (uniqueDates.includes(checkDate.toDateString())) {
+      streak++;
+      checkDate.setDate(checkDate.getDate() - 1);
+    }
+    return streak;
+  }, [sessions]);
+
   React.useEffect(() => {
     // Generate a random-ish daily quote based on the current day
     const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
     setDailyQuote(dayOfYear % 3);
 
-    // Calculate Streak
-    if (sessions.length > 0) {
-      const dates = sessions.map(s => new Date(s.created_at).toDateString());
-      const uniqueDates = Array.from(new Set(dates));
-      
-      let streak = 0;
-      let checkDate = new Date();
-      // Start checking from today or yesterday
-      if (!uniqueDates.includes(checkDate.toDateString())) {
-        checkDate.setDate(checkDate.getDate() - 1); // Check yesterday
-      }
-      
-      while (uniqueDates.includes(checkDate.toDateString())) {
-        streak++;
-        checkDate.setDate(checkDate.getDate() - 1);
-      }
-
-      const viewedStreaks = safeParseJSON<number[]>(localStorage.getItem('ht_viewed_streaks'), []);
-      if (streak >= 7 && !viewedStreaks.includes(7)) {
-        setShowStreakToast(7);
-      } else if (streak >= 3 && !viewedStreaks.includes(3)) {
-        setShowStreakToast(3);
-      }
+    // Show toast for milestones
+    const viewedStreaks = JSON.parse(localStorage.getItem('ht_viewed_streaks') || '[]');
+    if (currentStreak >= 7 && !viewedStreaks.includes(7)) {
+      setShowStreakToast(7);
+    } else if (currentStreak >= 3 && !viewedStreaks.includes(3)) {
+      setShowStreakToast(3);
     }
-  }, [sessions]);
+  }, [currentStreak]);
 
   const handleCloseStreak = (streak: number) => {
-    const viewed = safeParseJSON<number[]>(localStorage.getItem('ht_viewed_streaks'), []);
+    const viewed = JSON.parse(localStorage.getItem('ht_viewed_streaks') || '[]');
     viewed.push(streak);
     localStorage.setItem('ht_viewed_streaks', JSON.stringify(viewed));
     setShowStreakToast(null);
@@ -159,7 +161,7 @@ export default function Dashboard({ sessions, onStartSession, profile }: Dashboa
         </div>
         
         {profile && (
-          <div className="flex items-center gap-2 text-right">
+          <div className="flex items-center gap-2 text-right z-10">
              <div className="hidden sm:block">
                <p className="text-sm font-bold text-white capitalize">{profile.equipped_title || 'Novice'}</p>
                <p className="text-xs text-primary-400 font-mono">Lvl {xpData.level}</p>
@@ -175,8 +177,8 @@ export default function Dashboard({ sessions, onStartSession, profile }: Dashboa
                   )}
                 </div>
                 {/* Virtual Pet next to Avatar */}
-                <div className="absolute -bottom-1 -left-1">
-                   {stats && <VirtualPet averageControlScore={sessions.length > 0 ? sessions.reduce((s, x) => s + (x.control_score || 3), 0) / sessions.length : 3} size={22} />}
+                <div className="absolute -bottom-1 -left-1 z-50">
+                   {stats && <VirtualPet averageControlScore={sessions.length > 0 ? sessions.reduce((s, x) => s + (x.control_score || 3), 0) / sessions.length : 3} size={32} streak={currentStreak} />}
                 </div>
              </div>
           </div>
@@ -237,12 +239,6 @@ export default function Dashboard({ sessions, onStartSession, profile }: Dashboa
           <p className="text-slate-300 text-sm font-medium">{isTrackingActive ? 'You have a session in progress.' : 'Track your playtime and feelings.'}</p>
         </div>
       </button>
-
-      {/* Daily Motivation */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex gap-4 items-center shadow-lg animate-in fade-in slide-in-from-bottom-2">
-        <Star className="text-amber-400 shrink-0" size={24} />
-        <p className="text-sm text-slate-300 italic font-medium">"{quotes[dailyQuote]}"</p>
-      </div>
 
       {sessions.length === 0 ? (
         <div 
@@ -307,16 +303,21 @@ export default function Dashboard({ sessions, onStartSession, profile }: Dashboa
           {/* Insight Box */}
           {lastSession && (
             <section className="space-y-4 pb-8">
-              <h3 className="text-lg font-bold tracking-wide text-slate-100 uppercase">Latest Insight</h3>
-              <div className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-5 shadow-lg relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-1 h-full bg-primary-500"></div>
-                <div className="flex items-start gap-4">
-                  <div className="w-2 h-2 mt-2 rounded-full bg-primary-400 shrink-0 shadow-[0_0_8px_rgba(59,130,246,0.8)]"></div>
-                  <p className="text-slate-200 text-sm leading-relaxed font-medium">
-                    {lastSession.analyzer_tip}
-                  </p>
-                </div>
-                <p className="text-xs text-slate-400 mt-4 ml-6 uppercase tracking-wider">From your {getSessionIdentifier(lastSession)} session</p>
+              <h3 className="text-lg font-bold tracking-wide text-slate-100 uppercase">Companion Insight</h3>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg relative flex items-start gap-4">
+                 <div className="shrink-0 pt-2">
+                    <VirtualPet averageControlScore={lastSession.control_score || 3} size={56} streak={currentStreak} />
+                 </div>
+                 <div className="flex-1">
+                    <div className="w-0 h-0 border-t-8 border-t-transparent border-r-[12px] border-r-slate-800 border-b-8 border-b-transparent absolute left-[72px] top-10"></div>
+                    <div className="bg-slate-800/80 rounded-xl p-3 border border-slate-700/50">
+                      <h4 className="text-primary-400 font-bold mb-1 text-xs uppercase tracking-wider">{getSpiritName(lastSession.control_score || 3)} Says...</h4>
+                      <p className="text-slate-300 text-sm leading-relaxed font-medium italic">
+                        "{lastSession.analyzer_tip || quotes[dailyQuote]}"
+                      </p>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-3 uppercase tracking-wider pl-2">From {getSessionIdentifier(lastSession)}</p>
+                 </div>
               </div>
             </section>
           )}

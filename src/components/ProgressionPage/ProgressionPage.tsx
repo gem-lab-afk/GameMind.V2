@@ -248,7 +248,7 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
         </div>
 
         {/* Left Panel - Leaderboard */}
-        <div className={`flex-1 overflow-y-auto p-4 md:p-8 md:pt-16 border-r border-slate-800 relative md:w-1/2 ${activeTab === 'leaderboard' ? 'block' : 'hidden md:block'}`}>
+        <div className={`flex-1 overflow-y-auto p-4 md:p-8 md:pt-16 border-r border-slate-800 relative md:w-1/2 overflow-x-visible ${activeTab === 'leaderboard' ? 'block' : 'hidden md:block'}`}>
           <div className="flex flex-col mb-8 mt-12 md:mt-0">
              <h2 className="text-3xl font-bold bg-gradient-to-r from-primary-400 to-indigo-400 bg-clip-text text-transparent uppercase tracking-widest text-center md:text-left">
                Hall of Legends
@@ -297,7 +297,7 @@ export default function ProgressionPage({ sessionUser, profile, sessions, onProf
               <div 
                 key={user.id} 
                 id={user.id === sessionUser?.id ? 'my-rank' : undefined}
-                className={`p-4 rounded-xl flex items-center justify-between backdrop-blur-md border transition-all ${
+                className={`p-4 rounded-xl flex items-center justify-between backdrop-blur-md border transition-all relative z-10 hover:z-50 ${
                   user.id === sessionUser?.id 
                     ? 'bg-primary-900/40 border-primary-500/50 ring-2 ring-primary-500/20 shadow-[0_0_15px_rgba(59,130,246,0.15)] scale-[1.02]' 
                     : 'bg-slate-900/40 border-white/5 hover:bg-slate-800/40'
