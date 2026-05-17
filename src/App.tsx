@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Home, List, Settings as SettingsIcon, LogOut, CheckCircle2 } from 'lucide-react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-import { Session, Profile } from './types';
+import { Session, Profile, SessionUser, AppTab, TabChangeDetail } from './types';
 import Dashboard from './components/Dashboard';
 import Logs from './components/Logs';
 import Settings from './components/Settings';
@@ -12,14 +12,15 @@ import WhatsNewModal from './components/WhatsNewModal';
 import ProgressionPage from './components/ProgressionPage';
 import { supabase } from './lib/supabase';
 import { calculateProgression } from './lib/progressionUtils';
+import { safeParseJSON } from './utils';
 
 
 export default function App() {
-  const [sessionUser, setSessionUser] = useState<any>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'logs' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
@@ -39,8 +40,10 @@ export default function App() {
   }, []);
 
   // Auth & Profile Initialization
+  const authBootstrapHandled = useRef(false);
+  const isSupabaseUnavailable = !import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY;
+
   useEffect(() => {
-    let authChecked = false;
 
     // Safety timeout for initialize state
     const bootTimeout = setTimeout(() => {
@@ -49,25 +52,36 @@ export default function App() {
 
     // Optimistic Load: check local storage first
     try {
-      const cachedProfile = localStorage.getItem('ht_user_profile_cache');
-      if (cachedProfile) {
-        setProfile(JSON.parse(cachedProfile));
+      const cachedProfile = safeParseJSON<Profile | null>(localStorage.getItem('ht_user_profile_cache'), null);
+      if (cachedProfile && typeof cachedProfile.id === 'string' && typeof cachedProfile.username === 'string') {
+        setProfile(cachedProfile);
       }
-    } catch (e) {}
+    } catch {}
+
+    if (isSupabaseUnavailable) {
+      clearTimeout(bootTimeout);
+      if (localStorage.getItem('ht_is_guest') === 'true') {
+        handleGuestLogin();
+      } else {
+        setIsInitializing(false);
+      }
+      return;
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted.current) return;
-      
+      if (event === 'INITIAL_SESSION' && authBootstrapHandled.current) return;
+
       if (session?.user) {
         setSessionUser(session.user);
-        if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || !authChecked) {
-          authChecked = true;
+        if (event === 'INITIAL_SESSION') {
+          authBootstrapHandled.current = true;
           fetchProfile(session.user.id);
         }
         if (event === 'SIGNED_IN') {
           try {
-            supabase.from('profiles').update({ last_login: new Date().toISOString() as any }).eq('id', session.user.id);
-          } catch (e) {}
+            supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', session.user.id);
+          } catch {}
         }
       } else if (event === 'SIGNED_OUT') {
         localStorage.removeItem('ht_user_profile_cache');
@@ -79,11 +93,9 @@ export default function App() {
       } else {
         // No session
         if (event === 'INITIAL_SESSION') {
-          if (localStorage.getItem('ht_is_guest') === 'true') {
-            handleGuestLogin();
-          } else {
-            setIsInitializing(false);
-          }
+          authBootstrapHandled.current = true;
+          if (localStorage.getItem('ht_is_guest') === 'true') handleGuestLogin();
+          else setIsInitializing(false);
         }
       }
       
@@ -99,11 +111,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handleTabChange = (e: any) => {
+    const handleTabChange = (e: CustomEvent<TabChangeDetail['detail']>) => {
       if (e.detail) setActiveTab(e.detail);
     };
-    window.addEventListener('tab-change', handleTabChange);
-    return () => window.removeEventListener('tab-change', handleTabChange);
+    window.addEventListener('tab-change', handleTabChange as EventListener);
+    return () => window.removeEventListener('tab-change', handleTabChange as EventListener);
   }, []);
 
   const fetchProfileLock = React.useRef<string | null>(null);
@@ -129,7 +141,8 @@ export default function App() {
         const hasOnboarded = localStorage.getItem('ht_guest_onboarded');
         if (hasOnboarded === 'true') {
           const storedProfile = localStorage.getItem('ht_guest_profile');
-          if (storedProfile) setProfile(JSON.parse(storedProfile));
+          const guestProfile = safeParseJSON<Profile | null>(storedProfile, null);
+          if (guestProfile) setProfile(guestProfile);
         }
         return;
       }
@@ -196,9 +209,9 @@ export default function App() {
           }], { onConflict: 'id' }).then();
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Profile fetch error', err);
-      if (err?.status === 401) supabase.auth.signOut();
+      if (typeof err === 'object' && err !== null && 'status' in err && (err as { status?: number }).status === 401) supabase.auth.signOut();
       setProfile(null);
     } finally {
       clearTimeout(safetyTimeout);
@@ -310,12 +323,29 @@ export default function App() {
     }
   };
 
+  const applyProgressionFromSessions = async (nextSessions: Session[]) => {
+    if (!profile || sessionUser?.id === 'guest_user_12345') return;
+    const { totalXp, level: newLevel } = calculateProgression(nextSessions);
+    setProfile(prev => (prev ? { ...prev, current_xp: totalXp, level: newLevel } : null));
+    const { error: profileError } = await supabase.from('profiles').update({
+      current_xp: totalXp,
+      level: newLevel
+    }).eq('id', profile.id);
+    if (profileError && profileError.code !== 'PGRST204') {
+      console.error('Failed to sync new XP/Level to profile', profileError);
+    }
+  };
+
   const handleSaveSession = async (session: Session) => {
     if (!sessionUser) return;
     
-    // Optimistic UI update
     const newSessionWithUserId = { ...session, user_id: sessionUser.id };
-    setSessions(prev => [newSessionWithUserId, ...prev]);
+    let nextSessions: Session[] = [];
+    setSessions(prev => {
+      nextSessions = [newSessionWithUserId, ...prev];
+      return nextSessions;
+    });
+    await applyProgressionFromSessions(nextSessions);
     setIsTracking(false);
     
     setToastMsg('Saving Session...');
@@ -329,7 +359,7 @@ export default function App() {
 
     try {
       // Pass game_name as well for backwards compatibility with un-migrated databases
-      const payload: any = { ...newSessionWithUserId, game_name: newSessionWithUserId.session_name };
+      const payload = { ...newSessionWithUserId, game_name: newSessionWithUserId.session_name };
       let { error } = await supabase
         .from('sessions')
         .insert([payload]);
@@ -346,36 +376,21 @@ export default function App() {
         console.error('Error saving session to Supabase:', error);
         setToastMsg(`Cloud sync failed: ${error.message || error.code}`);
         setTimeout(() => setToastMsg(''), 5000);
-        // Revert optimistic UI
-        setSessions(prev => prev.filter(s => s.id !== newSessionWithUserId.id));
+        let revertedSessions: Session[] = [];
+        setSessions(prev => {
+          revertedSessions = prev.filter(s => s.id !== newSessionWithUserId.id);
+          return revertedSessions;
+        });
+        await applyProgressionFromSessions(revertedSessions);
       } else {
         console.log('Session successfully saved to Supabase');
         setToastMsg('Session Tracking Saved!');
         setTimeout(() => setToastMsg(''), 3000);
         
-        // Update XP & Level in profile
-        if (profile) {
-          const sessionsWithNew = [newSessionWithUserId, ...sessions];
-          const { totalXp, level: newLevel } = calculateProgression(sessionsWithNew);
-          
-          const { error: profileError } = await supabase.from('profiles').update({
-            current_xp: totalXp,
-            level: newLevel
-          }).eq('id', profile.id);
-          
-          if (profileError) {
-             if (profileError.code === 'PGRST204') {
-               console.warn('Profile XP sync skipped: database schema needs update (run migration SQL).');
-             } else {
-               console.error('Failed to sync new XP/Level to profile', profileError);
-             }
-          }
-          setProfile({ ...profile, current_xp: totalXp, level: newLevel });
-        }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Unexpected error saving session:', err);
-      setToastMsg(`Unexpected error: ${err.message}`);
+      setToastMsg(`Unexpected error: ${(err as { message?: string })?.message || 'Unknown error'}`);
       setTimeout(() => setToastMsg(''), 5000);
     }
   };
