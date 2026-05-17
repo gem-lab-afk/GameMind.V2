@@ -53,10 +53,10 @@ export default function Logs({ sessions }: LogsProps) {
                     </div>
                     <div>
                       <h3 className="font-semibold text-slate-200">
-                        {session.session_name || (session as any).game_name || 'Unnamed Session'}
+                        {session.session_name || session.game_name || 'Unnamed Session'}
                       </h3>
-                      {((session.games_played && session.games_played.length > 0) || ((session as any).tags && (session as any).tags.length > 0)) && (
-                        <p className="text-xs text-primary-400 mt-0.5">{session.games_played?.join(', ') || (session as any).tags?.join(', ')}</p>
+                      {((session.games_played && session.games_played.length > 0) || (session.tags && session.tags.length > 0)) && (
+                        <p className="text-xs text-primary-400 mt-0.5">{session.games_played?.join(', ') || session.tags?.join(', ')}</p>
                       )}
                       <p className="text-xs text-slate-500">{date}</p>
                     </div>

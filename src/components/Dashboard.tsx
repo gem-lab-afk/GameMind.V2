@@ -3,7 +3,7 @@ import { ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, C
 import { Play, Gamepad2, TrendingUp, Clock, Target, Star, Trophy } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Session, Profile } from '../types';
-import { formatTime } from '../utils';
+import { formatTime, safeParseJSON } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { calculateProgression } from '../lib/progressionUtils';
 import VirtualPet, { getSpiritName } from './VirtualPet';
@@ -12,10 +12,10 @@ const getSessionIdentifier = (s: Session) => {
   if (s.games_played && s.games_played.length > 0) {
     return s.games_played.join(', ');
   }
-  if ((s as any).tags && (s as any).tags.length > 0) {
-    return (s as any).tags.join(', ');
+  if (s.tags && s.tags.length > 0) {
+    return s.tags.join(', ');
   }
-  return s.session_name || (s as any).game_name || 'Unnamed Session';
+  return s.session_name || s.game_name || 'Unnamed Session';
 };
 
 interface DashboardProps {
@@ -102,7 +102,7 @@ export default function Dashboard({ sessions, onStartSession, profile }: Dashboa
     setDailyQuote(dayOfYear % 3);
 
     // Show toast for milestones
-    const viewedStreaks = JSON.parse(localStorage.getItem('ht_viewed_streaks') || '[]');
+    const viewedStreaks = safeParseJSON<number[]>(localStorage.getItem('ht_viewed_streaks'), []);
     if (currentStreak >= 7 && !viewedStreaks.includes(7)) {
       setShowStreakToast(7);
     } else if (currentStreak >= 3 && !viewedStreaks.includes(3)) {
@@ -111,7 +111,7 @@ export default function Dashboard({ sessions, onStartSession, profile }: Dashboa
   }, [currentStreak]);
 
   const handleCloseStreak = (streak: number) => {
-    const viewed = JSON.parse(localStorage.getItem('ht_viewed_streaks') || '[]');
+    const viewed = safeParseJSON<number[]>(localStorage.getItem('ht_viewed_streaks'), []);
     viewed.push(streak);
     localStorage.setItem('ht_viewed_streaks', JSON.stringify(viewed));
     setShowStreakToast(null);
