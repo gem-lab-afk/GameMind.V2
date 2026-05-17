@@ -29,4 +29,18 @@ export interface Session {
   diary_entry: string;
   analyzer_tip: string;
   created_at: string;
+  // Legacy compatibility fields for older rows/schemas
+  game_name?: string;
+  tags?: string[];
+}
+
+export interface SessionUser {
+  id: string;
+  email?: string;
+}
+
+export type AppTab = 'dashboard' | 'logs' | 'settings';
+
+export interface TabChangeDetail {
+  detail?: AppTab;
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Home, List, Settings as SettingsIcon, LogOut, CheckCircle2 } from 'lucide-react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-import { Session, Profile } from './types';
+import { Session, Profile, SessionUser, AppTab, TabChangeDetail } from './types';
 import Dashboard from './components/Dashboard';
 import Logs from './components/Logs';
 import Settings from './components/Settings';
@@ -10,16 +10,17 @@ import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
 import WhatsNewModal from './components/WhatsNewModal';
 import ProgressionPage from './components/ProgressionPage';
-import { supabase } from './lib/supabase';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { calculateProgression } from './lib/progressionUtils';
+import { safeParseJSON } from './utils';
 
 
 export default function App() {
-  const [sessionUser, setSessionUser] = useState<any>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'logs' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
@@ -49,11 +50,21 @@ export default function App() {
 
     // Optimistic Load: check local storage first
     try {
-      const cachedProfile = localStorage.getItem('ht_user_profile_cache');
+      const cachedProfile = safeParseJSON<Profile | null>(localStorage.getItem('ht_user_profile_cache'), null);
       if (cachedProfile) {
-        setProfile(JSON.parse(cachedProfile));
+        setProfile(cachedProfile);
       }
     } catch (e) {}
+
+    if (!isSupabaseConfigured) {
+      clearTimeout(bootTimeout);
+      if (localStorage.getItem('ht_is_guest') === 'true') {
+        handleGuestLogin();
+      } else {
+        setIsInitializing(false);
+      }
+      return () => clearTimeout(bootTimeout);
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted.current) return;
@@ -99,11 +110,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handleTabChange = (e: any) => {
+    const handleTabChange = (e: CustomEvent<TabChangeDetail['detail']>) => {
       if (e.detail) setActiveTab(e.detail);
     };
-    window.addEventListener('tab-change', handleTabChange);
-    return () => window.removeEventListener('tab-change', handleTabChange);
+    window.addEventListener('tab-change', handleTabChange as EventListener);
+    return () => window.removeEventListener('tab-change', handleTabChange as EventListener);
   }, []);
 
   const fetchProfileLock = React.useRef<string | null>(null);
@@ -129,7 +140,8 @@ export default function App() {
         const hasOnboarded = localStorage.getItem('ht_guest_onboarded');
         if (hasOnboarded === 'true') {
           const storedProfile = localStorage.getItem('ht_guest_profile');
-          if (storedProfile) setProfile(JSON.parse(storedProfile));
+          const guestProfile = safeParseJSON<Profile | null>(storedProfile, null);
+          if (guestProfile) setProfile(guestProfile);
         }
         return;
       }
@@ -329,7 +341,7 @@ export default function App() {
 
     try {
       // Pass game_name as well for backwards compatibility with un-migrated databases
-      const payload: any = { ...newSessionWithUserId, game_name: newSessionWithUserId.session_name };
+      const payload = { ...newSessionWithUserId, game_name: newSessionWithUserId.session_name };
       let { error } = await supabase
         .from('sessions')
         .insert([payload]);
@@ -355,7 +367,10 @@ export default function App() {
         
         // Update XP & Level in profile
         if (profile) {
-          const sessionsWithNew = [newSessionWithUserId, ...sessions];
+          const currentSessions = sessions.some(s => s.id === newSessionWithUserId.id)
+            ? sessions
+            : [newSessionWithUserId, ...sessions];
+          const sessionsWithNew = currentSessions;
           const { totalXp, level: newLevel } = calculateProgression(sessionsWithNew);
           
           const { error: profileError } = await supabase.from('profiles').update({
@@ -373,9 +388,10 @@ export default function App() {
           setProfile({ ...profile, current_xp: totalXp, level: newLevel });
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Unexpected error saving session:', err);
-      setToastMsg(`Unexpected error: ${err.message}`);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setToastMsg(`Unexpected error: ${message}`);
       setTimeout(() => setToastMsg(''), 5000);
     }
   };
